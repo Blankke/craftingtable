@@ -1,0 +1,41 @@
+{
+  "name": "media-planning-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "verify": "tsc --noEmit && vitest run",
+    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "dist:win": "npm run build && electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "electron": "^33.4.11",
+    "konva": "^9.3.22",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-konva": "^18.2.10",
+    "zustand": "^5.0.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5"
+  },
+  "build": {
+    "appId": "local.media.planning",
+    "productName": "音视频创作策划工作台",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "extraResources": [{ "from": "vendor", "to": "vendor", "filter": ["**/*"] }],
+    "win": { "target": "nsis" }
+  }
+}
