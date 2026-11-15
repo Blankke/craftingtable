@@ -1,0 +1,7 @@
+FFmpeg / ffprobe 9.0.2 essentials build
+Build distributor: https://www.gyan.dev/ffmpeg/builds/
+Corresponding FFmpeg source: https://github.com/FFmpeg/FFmpeg/tree/946fcce07b
+License: GNU GPL version 3. See LICENSE in this directory.
+Build details and third-party libraries: See README.txt in this directory.
+
+The application invokes ffmpeg and ffprobe as separate processes for local media analysis.

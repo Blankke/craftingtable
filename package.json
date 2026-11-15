@@ -6,24 +6,31 @@
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "verify": "tsc --noEmit && vitest run",
+    "dev:desktop": "node scripts/build-electron.mjs && node scripts/dev-desktop.mjs",
+    "clean:test": "powershell -ExecutionPolicy Bypass -File scripts/clean-test-artifacts.ps1",
+    "start": "electron .",
+    "smoke": "npm run build && npm run prepare:media && electron . --smoke",
+    "prepare:media": "powershell -ExecutionPolicy Bypass -File scripts/prepare-media.ps1",
+    "verify": "tsc --noEmit && vitest run src electron/projectSettings.test.ts && npm run test:e2e",
+    "test:e2e": "npm run prepare:media && npm run build && playwright test",
     "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
-    "dist:win": "npm run build && electron-builder --win nsis --x64"
+    "dist:win": "npm run build && npm run prepare:media && electron-builder --win nsis --x64"
   },
   "dependencies": {
-    "electron": "^33.4.11",
     "konva": "^9.3.22",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-konva": "^18.2.10",
-    "zustand": "^5.0.3",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^22.13.4",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.25.0",
     "typescript": "^5.7.3",
@@ -33,9 +40,26 @@
   "build": {
     "appId": "local.media.planning",
     "productName": "音视频创作策划工作台",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
-    "extraResources": [{ "from": "vendor", "to": "vendor", "filter": ["**/*"] }],
-    "win": { "target": "nsis" }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor",
+        "to": "vendor",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
   }
 }

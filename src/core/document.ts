@@ -6,7 +6,7 @@ export const assetSchema = z.object({
   id: z.string().uuid(), name: z.string(), path: z.string(),
   kind: z.enum(['video', 'audio', 'image', 'text']), durationUs: z.number().int().nonnegative().optional(),
   status: z.enum(['ready', 'missing', 'unsupported', 'processing']).default('ready'),
-  thumbnail: z.string().optional()
+  thumbnail: z.string().optional(), content: z.string().optional()
 });
 const base = { id: z.string().uuid(), x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive(), groupId: z.string().uuid().nullable() };
 export const objectSchema = z.discriminatedUnion('kind', [
@@ -40,14 +40,15 @@ export function newDocument(name: string): ProjectDocument {
 }
 
 export function mediaWidth(object: Extract<CanvasObject, { kind: 'media' }>): number {
-  return Math.max(120, (object.outUs - object.inUs) / 1_000_000 * object.pixelsPerSecond);
+  // 轨道宽度仅由源区间和时间显示比例决定，不加入隐含的最小宽度。
+  return (object.outUs - object.inUs) / 1_000_000 * object.pixelsPerSecond;
 }
 
 export function resolveAnchor(document: ProjectDocument, anchor: Anchor): { x: number; y: number } | null {
   if (anchor.kind === 'free') return anchor.point;
   if (anchor.kind === 'object') {
     const object = document.objects.find(item => item.id === anchor.objectId);
-    return object ? { x: object.x + object.width / 2, y: object.y + object.height / 2 } : null;
+    return object ? { x: object.x + (object.kind === 'media' ? mediaWidth(object) : object.width) / 2, y: object.y + object.height / 2 } : null;
   }
   const marker = document.markers.find(item => item.id === anchor.markerId);
   const media = document.objects.find(item => item.id === marker?.mediaId);
@@ -65,10 +66,19 @@ export function validateRelations(document: ProjectDocument): void {
     if ('assetId' in object && object.assetId && !assetIds.has(object.assetId)) throw Error('对象素材不存在');
     if (object.kind === 'media' && object.inUs >= object.outUs) throw Error('裁剪区间无效');
   }
-  for (const marker of document.markers) if (!objectIds.has(marker.mediaId)) throw Error('标记轨道不存在');
+  for (const marker of document.markers) if (document.objects.find(item => item.id === marker.mediaId)?.kind !== 'media') throw Error('标记轨道不存在');
   for (const connection of document.connections) for (const anchor of [connection.from, connection.to]) {
     if (anchor.kind === 'object' && !objectIds.has(anchor.objectId)) throw Error('连线对象不存在');
     if (anchor.kind === 'time' && !markerIds.has(anchor.markerId)) throw Error('连线标记不存在');
   }
   for (const group of document.groups) if (group.parentId && !groupIds.has(group.parentId)) throw Error('父分组不存在');
+  for (const group of document.groups) {
+    const seen = new Set([group.id]);
+    let parentId = group.parentId;
+    while (parentId) {
+      if (seen.has(parentId)) throw Error('分组层级存在循环');
+      seen.add(parentId);
+      parentId = document.groups.find(item => item.id === parentId)?.parentId ?? null;
+    }
+  }
 }
