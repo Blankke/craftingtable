@@ -99,7 +99,7 @@ test('实际创作规模项目能打开、显示素材并保存新增对象', as
       const updated = snapshot.assets.find(item => item.id === missingAsset.id);
       if (!updated || updated.path === missingAsset.path) return false;
       const sourceKey = createHash('sha256').update(updated.path).digest('hex').slice(0, 12);
-      return (await readdir(path.join(seeded.folder, 'cache'))).includes(`${updated.id}-${sourceKey}-wave.png`);
+      return (await readdir(path.join(seeded.folder, 'cache'))).some(file => file.startsWith(`${updated.id}-${sourceKey}-`) && file.endsWith('-wave.png'));
     }, { timeout: 15_000 }).toBe(true);
     await page.mouse.click(100, 180);
     await expect(page.locator('.media-controls')).toContainText('sample.wav');
@@ -128,7 +128,7 @@ test('实际创作规模项目能打开、显示素材并保存新增对象', as
     await expect(page.locator('.media-row').first()).toContainText('1.6s / 1.6s');
     await expect.poll(async () => page.locator('audio').evaluate(element => element.currentTime)).toBeGreaterThan(1.55);
     await expect(page.locator('audio')).toHaveJSProperty('paused', true);
-    await page.getByRole('button', { name: '矩形' }).click();
+    await page.getByRole('button', { name: '矩形', exact: true }).click();
     await page.locator('header button').first().click();
     await expect(page.locator('.home')).toBeVisible();
     const saved = JSON.parse(await readFile(path.join(seeded.folder, 'project.json'), 'utf8')) as ProjectDocument;

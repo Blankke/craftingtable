@@ -1,0 +1,51 @@
+// 用法：npm.cmd exec -- vitest run src/core/appearance.test.ts。验证图片几何与标记关系的持久化契约。
+import { describe, expect, it } from 'vitest';
+import { resizeObject, styleOf } from './appearance';
+import { documentSchema, newDocument, shapeKinds, type CanvasObject } from './document';
+import { Editor } from './editor';
+import { hasShapeGeometry, shapeGroups } from './shapeGeometry';
+import { shapeLabels } from './appearance';
+
+describe('图片、样式与显式标记', () => {
+  const image = (): Extract<CanvasObject, { kind: 'image' }> => ({ id: crypto.randomUUID(), kind: 'image', assetId: crypto.randomUUID(), x: 0, y: 0, width: 400, height: 200, aspectLocked: true, groupId: null });
+  it('锁定比例时宽高输入和手柄缩放使用同一比例，解锁后独立改变', () => {
+    const object = image();
+    resizeObject(object, 600, 500); expect([object.width, object.height]).toEqual([600, 300]);
+    resizeObject(object, 600, 150, 'height'); expect([object.width, object.height]).toEqual([300, 150]);
+    object.aspectLocked = false; resizeObject(object, 600, 500); expect([object.width, object.height]).toEqual([600, 500]);
+  });
+  it('所有基本形状的样式、文本和图片裁剪能完整往返保存，越界裁剪被拒绝', () => {
+    const document = newDocument('属性');
+    for (const kind of shapeKinds) {
+      const object: CanvasObject = { id: crypto.randomUUID(), kind, x: 0, y: 0, width: 100, height: 60, groupId: null, fill: '#fff', stroke: '#000', text: '中文' };
+      object.style = { ...styleOf(object), gradient: true, opacity: .4, dash: 'dashed' }; document.objects.push(object);
+    }
+    const object = image(); object.crop = { x: .1, y: .2, width: .7, height: .6 }; document.objects.push(object);
+    expect(documentSchema.parse(JSON.parse(JSON.stringify(document)))).toEqual(document);
+    object.crop.width = 1; expect(documentSchema.safeParse(document).success).toBe(false);
+  });
+  it('四类图库完整覆盖每个可保存图形，且不存在退化为方块的预览定义', () => {
+    const grouped = Object.values(shapeGroups).flat();
+    expect(new Set(grouped)).toEqual(new Set(shapeKinds));
+    expect(new Set(grouped).size).toBe(shapeKinds.length);
+    for (const kind of shapeKinds) {
+      expect(shapeLabels).toHaveProperty(kind);
+      expect(hasShapeGeometry(kind)).toBe(true);
+    }
+  });
+  it('笔记只引用已有标记；撤销笔记保留标记，取消预览不改修订号', () => {
+    const document = newDocument('标记'), assetId = crypto.randomUUID(), mediaId = crypto.randomUUID();
+    document.assets.push({ id: assetId, kind: 'audio', name: 'a.wav', path: 'assets/a.wav', status: 'ready' });
+    document.objects.push({ id: mediaId, kind: 'media', assetId, x: 0, y: 0, width: 100, height: 90, groupId: null, inUs: 0, outUs: 10e6, pixelsPerSecond: 30 });
+    const editor = new Editor(document);
+    expect(() => editor.annotateMarker(crypto.randomUUID(), { x: 100, y: 100 })).toThrow('请先选择');
+    const markerId = editor.addMarker(mediaId, 2e6);
+    editor.annotateMarker(markerId, { x: 300, y: 100 });
+    expect(editor.document.markers).toHaveLength(1);
+    expect(editor.document.connections[0].from).toEqual({ kind: 'time', markerId });
+    editor.undo(); expect(editor.document.objects).toHaveLength(1); expect(editor.document.markers).toHaveLength(1);
+    const revision = editor.document.revision;
+    editor.preview(draft => { draft.objects[0].x = 200; }); editor.cancelPreview();
+    expect(editor.document.objects[0].x).toBe(0); expect(editor.document.revision).toBe(revision);
+  });
+});

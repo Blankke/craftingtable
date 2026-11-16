@@ -1,4 +1,4 @@
-// 使用示例：在组件中调用 useLanguage() 获取当前语言和翻译函数；设置会保存在本机浏览器配置中。
+// 使用示例：在组件中调用 useLanguage() 获取当前语言和翻译函数；设置保存在 Electron 会话的本地配置中。
 import { create } from 'zustand';
 
 export type Language = 'zh-CN' | 'en';

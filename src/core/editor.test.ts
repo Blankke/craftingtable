@@ -10,7 +10,7 @@ describe('时间锚点与撤销', () => {
     document.assets.push({ id: assetId, name: 'test.wav', path: 'assets/test.wav', kind: 'audio', status: 'ready', durationUs: 10_000_000 });
     document.objects.push({ id: mediaId, kind: 'media', assetId, x: 10, y: 20, width: 300, height: 80, groupId: null, inUs: 0, outUs: 10_000_000, pixelsPerSecond: 30 });
     const editor = new Editor(document);
-    const textId = editor.annotate(mediaId, 5_000_000, { x: 400, y: 100 });
+    const textId = editor.annotateMarker(editor.addMarker(mediaId, 5_000_000), { x: 400, y: 100 });
     const anchor = editor.document.connections[0].from;
     expect(resolveAnchor(editor.document, anchor)?.x).toBe(160);
     editor.execute(draft => { const media = draft.objects[0]; if (media.kind === 'media') media.pixelsPerSecond = 60; });
@@ -32,7 +32,7 @@ describe('时间锚点与撤销', () => {
     document.objects.push({ id: mediaId, kind: 'media', assetId, x: 0, y: 0, width: 100, height: 80, groupId: null, inUs: 0, outUs: 5_000_000, pixelsPerSecond: 30 });
     document.objects.push({ id: textId, kind: 'text', x: 200, y: 0, width: 100, height: 50, groupId: null, text: '说明', fontSize: 16, color: '#000', align: 'left' });
     const editor = new Editor(document);
-    editor.annotate(mediaId, 2_000_000, textId);
+    editor.annotateMarker(editor.addMarker(mediaId, 2_000_000), textId);
     editor.duplicateObjects([mediaId, textId]);
     expect(editor.document.objects).toHaveLength(4);
     expect(editor.document.markers).toHaveLength(2);
@@ -133,7 +133,7 @@ describe('时间锚点与撤销', () => {
     document.assets.push({ id: assetId, name: 'test.wav', path: 'assets/test.wav', kind: 'audio', status: 'ready' });
     document.objects.push({ id: mediaId, kind: 'media', assetId, x: 10, y: 0, width: 100, height: 80, groupId: null, inUs: 0, outUs: 10_000_000, pixelsPerSecond: 20 });
     const editor = new Editor(document);
-    editor.annotate(mediaId, 1_000_000, { x: 300, y: 0 });
+    editor.annotateMarker(editor.addMarker(mediaId, 1_000_000), { x: 300, y: 0 });
     const markerId = editor.document.markers[0].id;
     editor.moveMarker(markerId, 3_000_000);
     expect(resolveAnchor(editor.document, editor.document.connections[0].from)?.x).toBe(70);
@@ -151,7 +151,7 @@ describe('时间锚点与撤销', () => {
     document.objects.push({ id: mediaId, kind: 'media', assetId, x: 10, y: 20, width: 100, height: 80, groupId: null, inUs: 0, outUs: 8_000_000, pixelsPerSecond: 20 });
     document.objects.push({ id: textId, kind: 'text', x: 250, y: 20, width: 120, height: 60, groupId: null, text: '说明', fontSize: 16, color: '#000', align: 'left' });
     const editor = new Editor(document);
-    editor.annotate(mediaId, 3_000_000, textId);
+    editor.annotateMarker(editor.addMarker(mediaId, 3_000_000), textId);
     editor.group([mediaId, textId]);
     editor.moveObject(textId, 290, 50);
     expect(editor.document.markers[0].timeUs).toBe(3_000_000);
@@ -183,5 +183,41 @@ describe('时间锚点与撤销', () => {
     expect(editor.document.objects).toHaveLength(3);
     expect(editor.document.groups).toHaveLength(2);
     expect(editor.document.connections).toHaveLength(1);
+  });
+  it('连接线可改样式、撤销与删除', () => {
+    const document = newDocument('连线');
+    const a = crypto.randomUUID(), b = crypto.randomUUID();
+    document.objects.push({ id: a, kind: 'rectangle', x: 0, y: 0, width: 50, height: 50, groupId: null, fill: '#fff', stroke: '#000' });
+    document.objects.push({ id: b, kind: 'rectangle', x: 100, y: 0, width: 50, height: 50, groupId: null, fill: '#fff', stroke: '#000' });
+    document.connections.push({ id: crypto.randomUUID(), from: { kind: 'object', objectId: a }, to: { kind: 'object', objectId: b }, routing: 'straight' });
+    const editor = new Editor(document);
+    const id = editor.document.connections[0].id;
+    editor.updateConnectionStyle(id, { dash: 'custom', customDash: [9, 3, 2, 3], endHead: 'open', opacity: .6, headSize: 18, label: '转场' });
+    expect(editor.document.connections[0].style).toMatchObject({ dash: 'custom', endHead: 'open', opacity: .6, headSize: 18, label: '转场' });
+    editor.duplicateObjects([a, b]);
+    expect(editor.document.connections[1].style).toEqual(editor.document.connections[0].style);
+    editor.undo();
+    editor.undo();
+    expect(editor.document.connections[0].style).toBeUndefined();
+    editor.deleteConnections([id]);
+    expect(editor.document.connections).toHaveLength(0);
+    editor.undo();
+    expect(editor.document.connections).toHaveLength(1);
+  });
+  it('多选对象可对齐和分布，整次排列只形成一次撤销', () => {
+    const document = newDocument('排列');
+    const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    document.objects.push(
+      { id: ids[0], kind: 'rectangle', x: 0, y: 30, width: 20, height: 20, groupId: null, fill: '#fff', stroke: '#000' },
+      { id: ids[1], kind: 'rectangle', x: 70, y: 0, width: 30, height: 30, groupId: null, fill: '#fff', stroke: '#000' },
+      { id: ids[2], kind: 'rectangle', x: 160, y: 50, width: 40, height: 40, groupId: null, fill: '#fff', stroke: '#000' }
+    );
+    const editor = new Editor(document);
+    editor.arrangeObjects(ids, 'top');
+    expect(editor.document.objects.map(object => object.y)).toEqual([0, 0, 0]);
+    editor.undo();
+    expect(editor.document.objects.map(object => object.y)).toEqual([30, 0, 50]);
+    editor.arrangeObjects(ids, 'distribute-x');
+    expect(editor.document.objects.map(object => object.x)).toEqual([0, 75, 160]);
   });
 });

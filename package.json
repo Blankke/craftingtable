@@ -5,18 +5,22 @@
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
-    "dev": "vite",
-    "dev:desktop": "node scripts/build-electron.mjs && node scripts/dev-desktop.mjs",
+    "dev": "chcp 65001>nul && node scripts/generate-hello-path.mjs && node scripts/build-electron.mjs && node scripts/dev-desktop.mjs",
     "clean:test": "powershell -ExecutionPolicy Bypass -File scripts/clean-test-artifacts.ps1",
     "start": "electron .",
-    "smoke": "npm run build && npm run prepare:media && electron . --smoke",
+    "smoke": "npm run build && npm run prepare:media && node scripts/smoke-desktop.mjs",
     "prepare:media": "powershell -ExecutionPolicy Bypass -File scripts/prepare-media.ps1",
-    "verify": "tsc --noEmit && vitest run src electron/projectSettings.test.ts && npm run test:e2e",
+    "verify": "tsc --noEmit && vitest run src electron/projectSettings.test.ts electron/devDirectories.test.ts && npm run test:e2e",
     "test:e2e": "npm run prepare:media && npm run build && playwright test",
-    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "build": "node scripts/generate-hello-path.mjs && tsc --noEmit && vite build && node scripts/build-electron.mjs",
     "dist:win": "npm run build && npm run prepare:media && electron-builder --win nsis --x64"
   },
   "dependencies": {
+    "@tiptap/extension-highlight": "^3.34.0",
+    "@tiptap/extension-image": "^3.34.0",
+    "@tiptap/pm": "^3.34.0",
+    "@tiptap/react": "^3.34.0",
+    "@tiptap/starter-kit": "^3.34.0",
     "konva": "^9.3.22",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -33,6 +37,7 @@
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.25.0",
+    "opentype.js": "^2.0.0",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
     "vitest": "^3.0.5"
@@ -59,7 +64,8 @@
     ],
     "win": {
       "target": "nsis",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico"
     }
   }
 }

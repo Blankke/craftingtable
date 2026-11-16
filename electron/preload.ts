@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 // 渲染器仅可调用列出的项目与素材操作，不能传入任意文件操作指令。
 contextBridge.exposeInMainWorld('workbench', {
@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('workbench', {
   saveProject: (document: unknown) => ipcRenderer.invoke('projects:save', document),
   leaveProject: () => ipcRenderer.invoke('projects:leave'),
   importAssets: () => ipcRenderer.invoke('assets:import'),
+  // 只在 preload 中解析真实拖入文件；磁盘绝对路径不回传给页面。
+  importDroppedFiles: (files: File[]) => ipcRenderer.invoke('assets:drop', files.map(file => webUtils.getPathForFile(file))),
   relinkAsset: (kind: string) => ipcRenderer.invoke('assets:relink', kind),
   createTextAsset: (input: { name: string; content: string }) => ipcRenderer.invoke('assets:create-text', input),
   analyzeAsset: (input: unknown) => ipcRenderer.invoke('assets:analyze', input),

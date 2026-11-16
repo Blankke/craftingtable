@@ -8,7 +8,8 @@ import crypto from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { documentSchema } from '../src/core/document';
+import { documentSchema, readProjectDocument } from '../src/core/document';
+import { buildProjectPreview, type ProjectPreview } from '../src/core/projectPreview';
 
 const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('list'), root: z.string() }),
@@ -113,15 +114,15 @@ async function analyzeMedia(request: Extract<z.infer<typeof requestSchema>, { me
   await mkdir(cacheRoot, { recursive: true });
   progress(5);
   if (request.kind === 'audio') {
-    // 内部素材路径随重新关联而变化，路径参与缓存键以避免旧波形被重复使用。
+    // 波形缓存只保存透明白色形状，改色由画布即时完成，不触发音频重新分析。
     const sourceKey = crypto.createHash('sha256').update(request.assetPath).digest('hex').slice(0, 12);
-    const relative = `cache/${request.assetId}-${sourceKey}-wave.png`;
+    const relative = `cache/${request.assetId}-${sourceKey}-neutral-wave.png`;
     const output = path.join(request.folder, relative);
     await withCacheLock(output, signal, async () => {
       if (await stat(output).then(() => true).catch(() => false)) return;
       const temporary = `${output}.${crypto.randomUUID()}.tmp.png`;
       try {
-        await runFfmpeg(['-v', 'error', '-i', source, '-filter_complex', '[0:a]showwavespic=s=1600x60:colors=0x5268e8[v]', '-map', '[v]', '-frames:v', '1', '-y', temporary], request.outUs, signal, progress);
+        await runFfmpeg(['-v', 'error', '-i', source, '-filter_complex', '[0:a]showwavespic=s=1600x60:colors=white,format=rgba,colorkey=black:0.01:0.0[v]', '-map', '[v]', '-frames:v', '1', '-y', temporary], request.outUs, signal, progress);
         await rename(temporary, output);
       } catch (error) { await rm(temporary, { force: true }); throw error; }
     });
@@ -161,12 +162,70 @@ async function durableWrite(file: string, content: string): Promise<void> {
   } finally { await rm(temporary, { force: true }); }
 }
 
+async function homeMediaThumbnail(folder: string, asset: z.infer<typeof documentSchema>['assets'][number], revision: number): Promise<string | null> {
+  if (asset.kind !== 'image' && asset.kind !== 'video') return null;
+  const assetsRoot = path.resolve(folder, 'assets');
+  const candidate = path.resolve(folder, asset.path);
+  if (!insideDirectory(assetsRoot, candidate)) return null;
+  const realRoot = await realpath(assetsRoot).catch(() => null);
+  const realFile = await realpath(candidate).catch(() => null);
+  if (!realRoot || !realFile || !insideDirectory(realRoot, realFile)) return null;
+  const cache = path.join(folder, 'cache');
+  const target = path.join(cache, `home-${asset.id}-${revision}.jpg`);
+  try {
+    await mkdir(cache, { recursive: true });
+    if (!existsSync(target)) {
+      // 缩略图只依赖素材和修订号；首页反复列出项目时直接读取缓存。
+      const temporary = `${target}.${crypto.randomUUID()}.tmp.jpg`;
+      try {
+        const args = ['-v', 'error', ...(asset.kind === 'video' ? ['-ss', '0.5'] : []), '-i', realFile, '-frames:v', '1', '-vf', 'scale=320:200:force_original_aspect_ratio=decrease,pad=320:200:(ow-iw)/2:(oh-ih)/2', '-q:v', '8', '-y', temporary];
+        await execFileAsync(mediaTool('ffmpeg'), args, { timeout: 20_000, maxBuffer: 256_000, windowsHide: true });
+        await rename(temporary, target);
+      } finally { await rm(temporary, { force: true }); }
+    }
+    const data = await readFile(target);
+    return data.length <= 150_000 ? `data:image/jpeg;base64,${data.toString('base64')}` : null;
+  } catch { return null; }
+}
+
+async function homePreview(folder: string, document: z.infer<typeof documentSchema>): Promise<ProjectPreview> {
+  const file = path.join(folder, 'cache', 'home-preview.json');
+  try {
+    const cached = JSON.parse(await readFile(file, 'utf8')) as { revision: number; preview: ProjectPreview };
+    if (cached.revision === document.revision && cached.preview) return cached.preview;
+  } catch { /* 首次列出或缓存损坏时重新计算 */ }
+  const images = new Map<string, string>();
+  const used = new Set(document.objects.flatMap(object => 'assetId' in object && object.assetId ? [object.assetId] : []));
+  const candidates = [...document.assets.filter(asset => used.has(asset.id)), ...document.assets.filter(asset => !used.has(asset.id))]
+    .filter(asset => asset.kind === 'image' || asset.kind === 'video').slice(0, 8);
+  await Promise.all(candidates.map(async asset => {
+    const image = await homeMediaThumbnail(folder, asset, document.revision);
+    if (image) images.set(asset.id, image);
+  }));
+  const preview = buildProjectPreview(document, images);
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await durableWrite(file, JSON.stringify({ revision: document.revision, preview }));
+  } catch { /* 缓存不可写不影响项目列表 */ }
+  return preview;
+}
+
 async function handle(raw: unknown): Promise<unknown> {
   const request = requestSchema.parse(raw);
   if (request.method === 'list') {
     await mkdir(request.root, { recursive: true });
     const entries = await readdir(request.root, { withFileTypes: true });
-    return entries.filter(item => item.isDirectory()).map(item => ({ name: item.name, folder: path.join(request.root, item.name) }));
+    // 首页只读摘要；读取时不迁移项目，也不改变当前活动项目或修订号。
+    return Promise.all(entries.filter(item => item.isDirectory()).map(async item => {
+      const folder = path.join(request.root, item.name);
+      for (const [file, status] of [['project.json', 'ready'], [path.join('recovery', 'latest.json'), 'recovery']] as const) {
+        try {
+          const { document } = readProjectDocument(JSON.parse(await readFile(path.join(folder, file), 'utf8')));
+          return { name: document.name, folder, revision: document.revision, status, summary: { objects: document.objects.length, assets: document.assets.length, notes: document.notes.length }, preview: await homePreview(folder, document) };
+        } catch { /* 尝试有效快照；两者都失效时显示文件夹名 */ }
+      }
+      return { name: item.name, folder, status: 'invalid', summary: { objects: 0, assets: 0, notes: 0 }, preview: {} };
+    }));
   }
   if (request.method === 'create') {
     const folder = path.join(request.root, `${request.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}-${crypto.randomUUID().slice(0, 8)}`);
@@ -176,14 +235,25 @@ async function handle(raw: unknown): Promise<unknown> {
   if (request.method === 'open') {
     let document: z.infer<typeof documentSchema>;
     let recovered = false;
+    let migrated = false;
+    let sourceFile = path.join(request.folder, 'project.json');
     try {
-      document = documentSchema.parse(JSON.parse(await readFile(path.join(request.folder, 'project.json'), 'utf8')));
+      ({ document, migrated } = readProjectDocument(JSON.parse(await readFile(sourceFile, 'utf8'))));
     } catch (originalError) {
       // 主文件损坏时读取上一次有效快照，保留主文件直到用户保存恢复内容。
       try {
-        document = documentSchema.parse(JSON.parse(await readFile(path.join(request.folder, 'recovery', 'latest.json'), 'utf8')));
+        sourceFile = path.join(request.folder, 'recovery', 'latest.json');
+        ({ document, migrated } = readProjectDocument(JSON.parse(await readFile(sourceFile, 'utf8'))));
         recovered = true;
       } catch { throw originalError; }
+    }
+    if (migrated) {
+      // 完成结构和关系校验后才备份并原子写入；任何失败都保留升级前原件。
+      const recoveryRoot = path.join(request.folder, 'recovery');
+      await mkdir(recoveryRoot, { recursive: true });
+      const backup = path.join(recoveryRoot, `pre-migration-${Date.now()}-${crypto.randomUUID()}.json`);
+      await copyFile(sourceFile, backup);
+      await durableWrite(path.join(request.folder, 'project.json'), JSON.stringify(document));
     }
     latestRevision.set(request.folder, recovered ? document.revision : Math.max(latestRevision.get(request.folder) ?? -1, document.revision));
     const assetDirectory = path.join(request.folder, 'assets');
@@ -200,7 +270,7 @@ async function handle(raw: unknown): Promise<unknown> {
       if (!exists) asset.status = 'missing';
       else if (asset.status === 'missing') asset.status = 'ready';
     }));
-    return { ...document, recovered };
+    return { ...document, recovered, migrated };
   }
   if (request.method === 'save') {
     const file = path.join(request.folder, 'project.json');
@@ -209,7 +279,7 @@ async function handle(raw: unknown): Promise<unknown> {
     await mkdir(path.join(request.folder, 'recovery'), { recursive: true });
     try {
       // 仅把可解析的主文件留作恢复快照，避免损坏文件覆盖最近有效版本。
-      documentSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+      readProjectDocument(JSON.parse(await readFile(file, 'utf8')));
       await copyFile(file, path.join(request.folder, 'recovery', 'latest.json'));
     } catch { /* 新项目或损坏的主文件没有可用快照 */ }
     await durableWrite(file, JSON.stringify(request.document));
@@ -238,10 +308,10 @@ async function handle(raw: unknown): Promise<unknown> {
   const source = request.source;
   const originalName = path.basename(source);
   const extension = path.extname(originalName).toLowerCase();
-  const kind = ['.mp4', '.mov', '.mkv'].includes(extension) ? 'video' : ['.mp3', '.wav'].includes(extension) ? 'audio' : ['.jpg', '.jpeg', '.png'].includes(extension) ? 'image' : extension === '.txt' ? 'text' : null;
+  const kind = ['.mp4', '.mov', '.mkv', '.webm'].includes(extension) ? 'video' : ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'].includes(extension) ? 'audio' : ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'].includes(extension) ? 'image' : ['.txt', '.md'].includes(extension) ? 'text' : null;
   if (!kind) throw Error('不支持的素材类型');
   if (request.method === 'relink' && kind !== request.expectedKind) throw Error('重新关联文件的类型不匹配');
-  await stat(source);
+  if (!(await stat(source)).isFile()) throw Error('请拖入文件，不支持文件夹');
   const fileName = `${crypto.randomUUID()}${extension}`;
   const destination = path.join(request.folder, 'assets', fileName);
   await mkdir(path.dirname(destination), { recursive: true });

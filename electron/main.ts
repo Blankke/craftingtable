@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, net, utilityProcess } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createReadStream, existsSync, mkdirSync, readdirSync, renameSync, writeFileSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, renameSync, writeFileSync, realpathSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 import { readProjectsRoot, saveProjectsRoot } from './projectSettings';
+import { developmentDirectories } from './devDirectories';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'project-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }]);
 let worker: Electron.UtilityProcess;
@@ -13,6 +14,14 @@ let projectFolder: string | null = null;
 let window: BrowserWindow;
 let quitting = false;
 let allowClose = false;
+function runtimeLog(message: string): void {
+  // 即使启动终端已关闭，也保留子进程退出原因供下次排查。
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  try { appendFileSync(path.join(app.getPath('userData'), 'runtime.log'), line, 'utf8'); } catch { /* 日志不可写不能阻断应用 */ }
+  console.error(line.trim());
+}
+process.on('uncaughtException', error => runtimeLog(`主进程未捕获异常：${error.stack ?? error.message}`));
+process.on('unhandledRejection', reason => runtimeLog(`主进程未处理拒绝：${String(reason)}`));
 const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 function startWorker(): void {
   worker = utilityProcess.fork(path.join(__dirname, 'worker.cjs'));
@@ -23,10 +32,14 @@ function startWorker(): void {
     pending.delete(message.id);
     message.error ? task.reject(Object.assign(Error(message.error.message), { code: message.error.code, retryable: message.error.retryable })) : task.resolve(message.result);
   });
-  worker.on('exit', () => {
+  worker.on('exit', code => {
+    runtimeLog(`后台进程退出：${code}`);
     for (const task of pending.values()) task.reject(Error('后台服务已退出'));
     pending.clear();
-    if (!quitting) { startWorker(); window?.webContents.send('backend:restarted'); }
+    if (!quitting) {
+      startWorker();
+      if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('backend:restarted');
+    }
   });
 }
 function call(request: unknown): Promise<unknown> {
@@ -35,21 +48,29 @@ function call(request: unknown): Promise<unknown> {
 }
 const smokeMode = process.argv.includes('--smoke') || process.env.WORKBENCH_SMOKE === '1';
 const e2eRoot = process.env.WORKBENCH_E2E_ROOT ? path.resolve(process.env.WORKBENCH_E2E_ROOT) : null;
-if (smokeMode || e2eRoot) {
-  // 自动化实例使用独立数据目录，避免与用户正式项目争抢单实例锁。
-  app.disableHardwareAcceleration();
-  app.commandLine.appendSwitch('disable-gpu');
-  const testUserData = e2eRoot ? path.join(e2eRoot, 'userdata') : path.join(app.getPath('temp'), 'media-workbench-smoke-userdata');
+const devRoot = process.env.WORKBENCH_DEV_ROOT ? path.resolve(process.env.WORKBENCH_DEV_ROOT) : null;
+const devDirectories = devRoot ? developmentDirectories(app.getPath('appData'), devRoot) : null;
+if (smokeMode || e2eRoot || devRoot) {
+  // 开发和自动化实例使用独立数据目录；开发缓存必须位于 Windows 用户目录，供 Chromium 沙箱访问。
+  if (smokeMode || e2eRoot) { app.disableHardwareAcceleration(); app.commandLine.appendSwitch('disable-gpu'); }
+  const testUserData = e2eRoot ? path.join(e2eRoot, 'userdata') : devDirectories ? devDirectories.userData : path.join(app.getPath('temp'), 'media-workbench-smoke-userdata');
   mkdirSync(testUserData, { recursive: true });
   app.setPath('userData', testUserData);
 }
-if (!app.requestSingleInstanceLock()) app.exit(smokeMode || e2eRoot ? 1 : 0);
+if (!app.requestSingleInstanceLock()) {
+  if (devRoot) console.error(`[dev] 无法取得桌面实例锁：可能已有窗口在运行，或当前用户无法写入 ${app.getPath('userData')}。请检查任务栏和该目录权限。`);
+  app.exit(smokeMode || e2eRoot || devRoot ? 1 : 0);
+}
 else app.whenReady().then(() => {
+  runtimeLog('应用就绪');
+  app.on('before-quit', () => { quitting = true; });
+  app.on('child-process-gone', (_event, details) => runtimeLog(`子进程退出：${details.type} ${details.reason} ${details.exitCode}`));
   app.on('will-quit', () => { quitting = true; });
+  app.on('second-instance', () => { if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
   startWorker();
   const smoke = smokeMode;
   const settingsFile = path.join(app.getPath('userData'), 'settings.json');
-  const defaultRoot = e2eRoot ? path.join(e2eRoot, 'projects') : smoke ? path.join(app.getPath('temp'), 'media-workbench-smoke') : path.join(app.getPath('documents'), '音视频创作策划工作台');
+  const defaultRoot = e2eRoot ? path.join(e2eRoot, 'projects') : smoke ? path.join(app.getPath('temp'), 'media-workbench-smoke') : devDirectories ? devDirectories.projects : path.join(app.getPath('documents'), '音视频创作策划工作台');
   let root = e2eRoot || smoke ? defaultRoot : readProjectsRoot(settingsFile, defaultRoot);
   ipcMain.handle('settings:get', () => ({ projectsRoot: root }));
   ipcMain.handle('settings:choose-projects-root', async () => {
@@ -85,7 +106,7 @@ else app.whenReady().then(() => {
         const end = suffix ? size - 1 : match[2] ? Math.min(size - 1, Number(match[2])) : size - 1;
         if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || end < start) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
         const extension = path.extname(realFile).toLowerCase();
-        const contentType = ({ '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png' } as Record<string, string>)[extension] || 'application/octet-stream';
+        const contentType = ({ '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.webm': 'video/webm' } as Record<string, string>)[extension] || 'application/octet-stream';
         const body = Readable.toWeb(createReadStream(realFile, { start, end })) as ReadableStream<Uint8Array>;
         return new Response(body, { status: 206, headers: { 'Content-Type': contentType, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${size}`, 'Accept-Ranges': 'bytes' } });
       }
@@ -114,15 +135,22 @@ else app.whenReady().then(() => {
     return call({ method: 'save', folder: projectFolder, document });
   });
   ipcMain.handle('projects:leave', () => { projectFolder = null; });
-  ipcMain.handle('assets:import', async () => {
+  const importPaths = async (sources: string[]) => {
     if (!projectFolder) throw Error('未打开项目');
-    const selected = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'] });
-    if (selected.canceled) return { assets: [], errors: [] };
-    const results = await Promise.allSettled(selected.filePaths.map(source => call({ method: 'import', folder: projectFolder, source })));
+    const folder = projectFolder;
+    const results = await Promise.allSettled(sources.map(source => call({ method: 'import', folder, source })));
     return {
       assets: results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []),
-      errors: results.flatMap((result, index) => result.status === 'rejected' ? [{ name: path.basename(selected.filePaths[index]), message: String(result.reason instanceof Error ? result.reason.message : result.reason) }] : [])
+      errors: results.flatMap((result, index) => result.status === 'rejected' ? [{ name: path.basename(sources[index]), message: String(result.reason instanceof Error ? result.reason.message : result.reason) }] : [])
     };
+  };
+  ipcMain.handle('assets:drop', (event, sources: unknown) => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw Error('无效的导入来源');
+    return importPaths(z.array(z.string().min(1).refine(value => path.isAbsolute(value))).min(1).max(100).parse(sources));
+  });
+  ipcMain.handle('assets:import', async () => {
+    const selected = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'] });
+    return selected.canceled ? { assets: [], errors: [] } : importPaths(selected.filePaths);
   });
   ipcMain.handle('assets:relink', async (_event, kind: unknown) => {
     if (!projectFolder) throw Error('未打开项目');
@@ -143,7 +171,20 @@ else app.whenReady().then(() => {
     catch (error) { return { ok: false, error: { code: (error as { code?: string }).code ?? 'INTERNAL', message: String((error as Error).message), retryable: (error as { retryable?: boolean }).retryable ?? true } }; }
   });
   ipcMain.handle('tasks:cancel', (_event, taskId: unknown) => call({ method: 'cancel', taskId: z.string().uuid().parse(taskId) }));
-  window = new BrowserWindow({ width: 1440, height: 900, show: !smoke, backgroundColor: '#ffffff', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  const appIcon = path.join(__dirname, '../build/icon.png');
+  window = new BrowserWindow({ width: 1440, height: 900, show: !smoke, backgroundColor: '#ffffff', icon: existsSync(appIcon) ? appIcon : undefined, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke } });
+  window.webContents.on('console-message', (_event, level, message) => { if (level >= 2) runtimeLog(`界面控制台：${message}`); });
+  window.webContents.on('render-process-gone', (_event, details) => runtimeLog(`界面进程退出：${details.reason} ${details.exitCode}`));
+  if (devRoot) {
+    console.log(`[dev] Electron 窗口已创建；运行时数据：${app.getPath('userData')}`);
+    window.webContents.on('did-finish-load', () => {
+      void window.webContents.executeJavaScript('Boolean(document.querySelector(".home,.app"))')
+        .then(ready => console.log(`[dev] 页面加载完成；工作台可用：${ready}；窗口可见：${window.isVisible()}`))
+        .catch(error => console.error('[dev] 页面脚本执行失败：', error));
+    });
+    window.webContents.on('did-fail-load', (_event, code, description, url) => console.error(`[dev] 界面加载失败 (${code})：${description}；地址：${url}`));
+    window.webContents.on('render-process-gone', (_event, details) => console.error(`[dev] 界面进程异常退出：${details.reason}，代码 ${details.exitCode}`));
+  }
   window.on('close', event => {
     if (allowClose || !projectFolder) return;
     event.preventDefault();
@@ -181,7 +222,7 @@ else app.whenReady().then(() => {
         projectName.dispatchEvent(new Event('input', { bubbles: true }));
         projectName.closest('form').querySelector('button[type=submit]').click();
         await until(() => document.querySelector('.tool-grid'));
-        document.querySelectorAll('.tool-grid button')[1].click();
+        document.querySelector('.shape-group .tool-tile').click();
         const folder = (await window.workbench.listProjects()).find(item => item.name.startsWith(name))?.folder;
         if (!folder) throw Error('界面创建项目失败');
         const reopened = await until(async () => { const snapshot = await window.workbench.openProject(folder);
@@ -190,6 +231,8 @@ else app.whenReady().then(() => {
       })()`);
       if (!result.ready || !result.persisted) throw Error('首页或项目读写失败');
       await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(button => button.textContent === '箭头').click()`);
+        await new Promise(resolve => setTimeout(resolve, 80));
+        await window.webContents.capturePage();
       window.webContents.sendInputEvent({ type: 'mouseDown', x: 120, y: 170, button: 'left', clickCount: 1 });
       window.webContents.sendInputEvent({ type: 'mouseMove', x: 440, y: 360 });
       window.webContents.sendInputEvent({ type: 'mouseUp', x: 440, y: 360, button: 'left', clickCount: 1 });
@@ -273,7 +316,7 @@ else app.whenReady().then(() => {
         await new Promise<void>(resolve => { window.webContents.once('did-finish-load', () => resolve()); window.webContents.reload(); });
         const opened = await window.webContents.executeJavaScript(`(async () => {
           for (let attempt = 0; attempt < 100; attempt++) {
-            const card = [...document.querySelectorAll('.project-card')].find(item => item.textContent === ${JSON.stringify(result.name)});
+            const card = [...document.querySelectorAll('.gf-hit')].find(item => item.getAttribute('aria-label') === ${JSON.stringify(result.name)});
             if (card) { card.click(); break; }
             await new Promise(resolve => setTimeout(resolve, 50));
           }
@@ -284,13 +327,26 @@ else app.whenReady().then(() => {
           return false;
         })()`);
         if (!opened) throw Error('媒体项目无法从首页打开');
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 130, y: 340 });
-        await new Promise(resolve => setTimeout(resolve, 100));
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 130, y: 335 });
-        await new Promise(resolve => setTimeout(resolve, 100));
-        writeFileSync(path.join(root, 'track-preview.png'), (await window.webContents.capturePage()).toPNG());
-        window.webContents.sendInputEvent({ type: 'mouseDown', x: 130, y: 335, button: 'left', clickCount: 1 });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 500, y: 450 });
+        // 首页重载后启动遮罩仍可能覆盖真实指针输入，等它移除再点画布。
+        await window.webContents.executeJavaScript(`(async () => { for (let i = 0; i < 80 && document.querySelector('.splash'); i++) await new Promise(resolve => setTimeout(resolve, 50)); return true; })()`);
+        // 先单击媒体并按 M，再选择已有标记，从上方连接柄创建笔记。
+        window.webContents.sendInputEvent({ type: 'mouseDown', x: 130, y: 345, button: 'left', clickCount: 1 });
+        window.webContents.sendInputEvent({ type: 'mouseUp', x: 130, y: 345, button: 'left', clickCount: 1 });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        // 冒烟窗口隐藏运行，没有系统键盘焦点；键盘实机路径由 Playwright 桌面用例覆盖。
+        await window.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))`);
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const markerButton = await window.webContents.executeJavaScript(`(() => { const button = document.querySelector('[aria-label="选择标记"]'); if (!button) return { found: false, selected: document.querySelector('.canvas')?.dataset.selected }; button.click(); return { found: true }; })()`) as { found: boolean; selected?: string };
+        if (!markerButton.found) throw Error(`选择标记按钮缺失：${markerButton.selected ?? '未选中媒体'}`);
+        await new Promise(resolve => setTimeout(resolve, 150));
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 130, y: 284 });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        // 隐藏窗口先强制绘制一帧，确保新增连接柄的命中图已刷新。
+        await window.webContents.capturePage();
+        window.webContents.sendInputEvent({ type: 'mouseDown', x: 130, y: 284, button: 'left', clickCount: 1 });
+        await new Promise(resolve => setTimeout(resolve, 80));
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 500, y: 450, modifiers: ['leftButtonDown'] });
+        await new Promise(resolve => setTimeout(resolve, 80));
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 500, y: 450, button: 'left', clickCount: 1 });
         const annotation = await new Promise<boolean>(resolve => {
           let attempts = 0;
@@ -303,7 +359,11 @@ else app.whenReady().then(() => {
           };
           void inspect();
         });
-        if (!annotation) throw Error('时间连接柄未创建完整注释');
+        if (!annotation) {
+          writeFileSync(path.join(root, 'annotation-debug.png'), (await window.webContents.capturePage()).toPNG());
+          const state = await window.webContents.executeJavaScript(`({ selected: document.querySelector('.canvas')?.dataset.selected, markerSelected: document.querySelector('[aria-label="选择标记"]')?.getAttribute('aria-pressed') })`);
+          throw Error(`时间连接柄未创建完整注释：${JSON.stringify(state)}`);
+        }
         await window.webContents.executeJavaScript(`document.querySelector('[aria-label=编辑画布文字]').focus()`);
         await window.webContents.insertText('中文注释');
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -319,24 +379,12 @@ else app.whenReady().then(() => {
           void inspect();
         });
         if (!savedText) throw Error(`中文注释未保存 ${JSON.stringify(textInput)}`);
-        const markerBefore = await call({ method: 'open', folder: result.folder }) as { markers: { timeUs: number }[] };
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 130, y: 324 });
-        await new Promise(resolve => setTimeout(resolve, 80));
-        window.webContents.sendInputEvent({ type: 'mouseDown', x: 130, y: 324, button: 'left', clickCount: 1 });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 150, y: 324, modifiers: ['leftButtonDown'] });
-        window.webContents.sendInputEvent({ type: 'mouseUp', x: 150, y: 324, button: 'left', clickCount: 1 });
-        const markerMoved = await new Promise<boolean>(resolve => {
-          let attempts = 0;
-          const inspect = async () => {
-            const snapshot = await call({ method: 'open', folder: result.folder }) as { markers: { timeUs: number }[] };
-            if (snapshot.markers[0]?.timeUs > markerBefore.markers[0].timeUs + 100_000) resolve(true);
-            else if (++attempts >= 40) resolve(false);
-            else setTimeout(inspect, 100);
-          };
-          void inspect();
-        });
-        if (!markerMoved) throw Error('轨道标记拖动未更新源时间');
+        window.webContents.sendInputEvent({ type: 'mouseDown', x: 120, y: 310, button: 'left', clickCount: 1 });
+        window.webContents.sendInputEvent({ type: 'mouseUp', x: 120, y: 310, button: 'left', clickCount: 1 });
+        await new Promise(resolve => setTimeout(resolve, 150));
         await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(button => button.textContent === '箭头').click()`);
+        await new Promise(resolve => setTimeout(resolve, 80));
+        await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 120, y: 310, button: 'left', clickCount: 1 });
         window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 510, modifiers: ['leftButtonDown'] });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 510, button: 'left', clickCount: 1 });
@@ -359,6 +407,8 @@ else app.whenReady().then(() => {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(button => button.textContent === '箭头').click()`);
+        await new Promise(resolve => setTimeout(resolve, 80));
+        await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 520, y: 510, button: 'left', clickCount: 1 });
         window.webContents.sendInputEvent({ type: 'mouseMove', x: 180, y: 345, modifiers: ['leftButtonDown'] });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 180, y: 345, button: 'left', clickCount: 1 });
@@ -367,13 +417,13 @@ else app.whenReady().then(() => {
           const inspect = async () => {
             const snapshot = await call({ method: 'open', folder: result.folder }) as { markers: { mediaId: string }[]; connections: { to: { kind: string; markerId?: string } }[] };
             const target = snapshot.connections[2]?.to;
-            if (snapshot.markers.length === 2 && snapshot.connections.length === 3 && target?.kind === 'time' && snapshot.markers.some(marker => marker.mediaId === mediaId)) resolve(true);
+            if (snapshot.markers.length === 1 && snapshot.connections.length === 3 && target?.kind === 'object' && snapshot.markers.some(marker => marker.mediaId === mediaId)) resolve(true);
             else if (++attempts >= 40) resolve(false);
             else setTimeout(inspect, 100);
           };
           void inspect();
         });
-        if (!timeArrow) throw Error('箭头终点未绑定轨道源时间');
+        if (!timeArrow) throw Error('普通箭头应绑定对象，不能隐式新增时间标记');
         await window.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))`);
         for (let attempt = 0; attempt < 40; attempt++) {
           const snapshot = await call({ method: 'open', folder: result.folder }) as { markers: unknown[]; connections: unknown[] };
@@ -475,7 +525,7 @@ else app.whenReady().then(() => {
         const dragResult = await window.webContents.executeJavaScript(`(async () => {
           const name = ${JSON.stringify(result.name)};
           for (let attempt = 0; attempt < 100; attempt++) {
-            const card = [...document.querySelectorAll('.project-card')].find(item => item.textContent === name);
+            const card = [...document.querySelectorAll('.gf-hit')].find(item => item.getAttribute('aria-label') === name);
             if (card) { card.click(); break; }
             await new Promise(resolve => setTimeout(resolve, 50));
           }
@@ -492,17 +542,26 @@ else app.whenReady().then(() => {
           const canvas = document.querySelector('.canvas');
           const asset = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('note.txt'));
           if (!canvas || !asset) return false;
-          const transfer = new DataTransfer();
-          asset.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
-          canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: transfer, clientX: 650, clientY: 550 }));
-          canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer, clientX: 650, clientY: 550 }));
-          const shape = [...document.querySelectorAll('.tool-grid button')].find(item => item.textContent === '矩形');
-          const shapeTransfer = new DataTransfer();
-          shape.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: shapeTransfer }));
-          canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: shapeTransfer, clientX: 700, clientY: 600 }));
           return true;
         })()`);
         if (!dragResult) throw Error('文字素材拖放入口缺失');
+        // 内部放置统一使用 Pointer Events，模拟真实鼠标而不保留旧 HTML 拖放协议。
+        const dragIntoCanvas = async (selector: string, label: string, x: number, y: number) => {
+          const origin = await window.webContents.executeJavaScript(`(() => {
+            const element = [...document.querySelectorAll(${JSON.stringify(selector)})].find(item => item.textContent.includes(${JSON.stringify(label)}));
+            element.scrollIntoView({ block: 'center' }); const box = element.getBoundingClientRect(); return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+          })()`) as { x: number; y: number };
+          await window.webContents.capturePage();
+          window.webContents.sendInputEvent({ type: 'mouseMove', ...origin });
+          window.webContents.sendInputEvent({ type: 'mouseDown', ...origin, button: 'left', clickCount: 1 });
+          await new Promise(resolve => setTimeout(resolve, 80));
+          window.webContents.sendInputEvent({ type: 'mouseMove', x, y, modifiers: ['leftButtonDown'] });
+          await new Promise(resolve => setTimeout(resolve, 80));
+          window.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+        };
+        await dragIntoCanvas('.asset', 'note.txt', 650, 550);
+        await dragIntoCanvas('.tool-grid button', '矩形', 700, 600);
+
         const dropped = await new Promise<boolean>(resolve => {
           let attempts = 0;
           const inspect = async () => {
@@ -539,7 +598,7 @@ else app.whenReady().then(() => {
       await new Promise<void>(resolve => { window.webContents.once('did-finish-load', () => resolve()); window.webContents.reload(); });
       const unsupportedPrompt = await window.webContents.executeJavaScript(`(async () => {
         for (let attempt = 0; attempt < 100; attempt++) {
-          const card = [...document.querySelectorAll('.project-card')].find(item => item.textContent === ${JSON.stringify(result.name)});
+          const card = [...document.querySelectorAll('.gf-hit')].find(item => item.getAttribute('aria-label') === ${JSON.stringify(result.name)});
           if (card) { card.click(); break; }
           await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -547,6 +606,7 @@ else app.whenReady().then(() => {
         return !!document.querySelector('.canvas');
       })()`);
       if (!unsupportedPrompt) throw Error('不支持媒体的项目未打开');
+      await window.webContents.executeJavaScript(`(async () => { for (let i = 0; i < 80 && document.querySelector('.splash'); i++) await new Promise(resolve => setTimeout(resolve, 50)); return true; })()`);
       window.webContents.sendInputEvent({ type: 'mouseDown', x: 420, y: 250, button: 'left', clickCount: 1 });
       window.webContents.sendInputEvent({ type: 'mouseUp', x: 420, y: 250, button: 'left', clickCount: 1 });
       const unsupportedVisible = await window.webContents.executeJavaScript(`(async () => { for (let i = 0; i < 100; i++) { if (document.querySelector('.media-playback-error')?.textContent.includes('无法播放')) return true; await new Promise(resolve => setTimeout(resolve, 50)); } return false; })()`);
@@ -590,7 +650,7 @@ else app.whenReady().then(() => {
       await new Promise<void>(resolve => { window.webContents.once('did-finish-load', () => resolve()); window.webContents.reload(); });
       const openedRecovery = await window.webContents.executeJavaScript(`(async () => {
         for (let attempt = 0; attempt < 100; attempt++) {
-          const card = [...document.querySelectorAll('.project-card')].find(item => item.textContent === ${JSON.stringify(result.name)});
+          const card = [...document.querySelectorAll('.gf-hit')].find(item => item.getAttribute('aria-label') === ${JSON.stringify(result.name)});
           if (card) { card.click(); return true; }
           await new Promise(resolve => setTimeout(resolve, 50));
         }

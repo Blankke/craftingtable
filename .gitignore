@@ -4,6 +4,7 @@ test-results/
 dist/
 dist-electron/
 release/
+.runtime/
 *.log
 .env
 vendor/*.exe
