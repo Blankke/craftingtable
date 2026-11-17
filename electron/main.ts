@@ -277,15 +277,15 @@ else app.whenReady().then(() => {
         if (reopened.assets.length !== samples.length) throw Error('素材保存重开失败');
         const waveformAsset = importedAssets.find(item => item.path.endsWith('.wav'))!;
         const videoAssetForCache = importedAssets.find(item => item.kind === 'video')!;
-        const waveform = await call({ method: 'analyze', folder: result.folder, assetId: waveformAsset.id, assetPath: waveformAsset.path, kind: 'audio', inUs: 0, outUs: waveformAsset.durationUs, pixelsPerSecond: 30 }) as { waveform: string };
+        const waveform = await call({ method: 'analyze', folder: result.folder, assetId: waveformAsset.id, assetPath: waveformAsset.path, kind: 'audio', inUs: 0, outUs: waveformAsset.durationUs, pixelsPerSecond: 30 }) as { waveform: { path: string; samplesPerSecond: number; durationUs: number } };
         const videoFrames = await call({ method: 'analyze', folder: result.folder, assetId: videoAssetForCache.id, assetPath: videoAssetForCache.path, kind: 'video', inUs: 0, outUs: videoAssetForCache.durationUs, pixelsPerSecond: 60 }) as { frames: { path: string }[] };
-        if (!waveform.waveform || !videoFrames.frames.length) throw Error('波形或视频帧未生成');
+        if (!waveform.waveform?.path || !videoFrames.frames.length) throw Error('波形或视频帧未生成');
         const cancellableAsset = importedAssets.find(item => item.path.endsWith('.mp3'))!;
         const cancelId = crypto.randomUUID();
         const pendingAnalysis = call({ method: 'analyze', folder: result.folder, assetId: cancellableAsset.id, assetPath: cancellableAsset.path, kind: 'audio', inUs: 0, outUs: cancellableAsset.durationUs, pixelsPerSecond: 30, taskId: cancelId });
         const cancellation = await call({ method: 'cancel', taskId: cancelId }) as { cancelled: boolean };
         const cancelledCode = await pendingAnalysis.then(() => 'FINISHED', error => (error as { code?: string }).code ?? 'UNKNOWN');
-        if (!cancellation.cancelled || cancelledCode !== 'CANCELLED' || readdirSync(path.join(result.folder, 'cache')).some(file => file.startsWith(`${cancellableAsset.id}-`) && file.endsWith('-wave.png'))) throw Error(`媒体任务取消失败：${cancelledCode}`);
+        if (!cancellation.cancelled || cancelledCode !== 'CANCELLED' || readdirSync(path.join(result.folder, 'cache')).some(file => file.startsWith(`${cancellableAsset.id}-`) && file.endsWith('-wave-v1.bin'))) throw Error(`媒体任务取消失败：${cancelledCode}`);
         const decoded = await window.webContents.executeJavaScript(`(async () => {
           const assets = ${JSON.stringify(importedAssets)};
           const load = asset => new Promise((resolve, reject) => {
@@ -297,7 +297,8 @@ else app.whenReady().then(() => {
             element.src = url;
           });
           for (const asset of assets.filter(item => item.kind !== 'text')) await load(asset);
-          await load({ kind: 'image', host: 'cache', path: ${JSON.stringify(waveform.waveform)} });
+          const waveBuffer = await fetch('project-media://cache/' + ${JSON.stringify(waveform.waveform.path)}.split('/').map(encodeURIComponent).join('/')).then(response => response.ok ? response.arrayBuffer() : null);
+          if (!waveBuffer || waveBuffer.byteLength < 28) throw Error('波形峰值缓存无法读取');
           await load({ kind: 'image', host: 'cache', path: ${JSON.stringify(videoFrames.frames[0].path)} });
           const videoAsset = assets.find(item => item.kind === 'video');
           const video = await load(videoAsset);
@@ -516,8 +517,8 @@ else app.whenReady().then(() => {
         await call({ method: 'save', folder: result.folder, document: { ...missingDocument, revision: missingDocument.revision + 1, assets: missingDocument.assets.map(item => item.id === waveformAsset.id ? { ...item, path: replacement.path, status: 'ready' } : item) } });
         const restored = await call({ method: 'open', folder: result.folder }) as { assets: { id: string; status: string }[]; markers: unknown[]; connections: unknown[] };
         if (restored.assets.find(item => item.id === waveformAsset.id)?.status !== 'ready' || restored.markers.length !== 1 || restored.connections.length !== 2) throw Error('重新关联后关系未恢复');
-        const relinkedWaveform = await call({ method: 'analyze', folder: result.folder, assetId: waveformAsset.id, assetPath: replacement.path, kind: 'audio', inUs: 0, outUs: waveformAsset.durationUs, pixelsPerSecond: 30 }) as { waveform: string };
-        if (!relinkedWaveform.waveform || relinkedWaveform.waveform === waveform.waveform) throw Error('重新关联素材沿用了旧波形缓存');
+        const relinkedWaveform = await call({ method: 'analyze', folder: result.folder, assetId: waveformAsset.id, assetPath: replacement.path, kind: 'audio', inUs: 0, outUs: waveformAsset.durationUs, pixelsPerSecond: 30 }) as { waveform: { path: string } };
+        if (!relinkedWaveform.waveform?.path || relinkedWaveform.waveform.path === waveform.waveform.path) throw Error('重新关联素材沿用了旧波形缓存');
         const textAsset = await call({ method: 'createText', folder: result.folder, name: 'note', content: '纯文本素材' }) as { id: string; path: string; kind: string; content: string };
         const beforeDrop = await call({ method: 'open', folder: result.folder }) as Record<string, unknown>;
         await call({ method: 'save', folder: result.folder, document: { ...beforeDrop, revision: Number(beforeDrop.revision) + 1, assets: [...(beforeDrop.assets as unknown[]), textAsset] } });
@@ -534,8 +535,8 @@ else app.whenReady().then(() => {
           for (let attempt = 0; attempt < 100; attempt++) {
             const image = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('smoke.jpg'))?.querySelector('img.asset-preview');
             const video = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('smoke.mp4'))?.querySelector('img.asset-preview');
-            const audio = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('smoke.wav'))?.querySelector('img.asset-preview');
-            if (image?.naturalWidth > 0 && video?.naturalWidth > 0 && audio?.naturalWidth > 0) { previewsReady = true; break; }
+            const audio = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('smoke.wav'))?.querySelector('.asset-preview-empty');
+            if (image?.naturalWidth > 0 && video?.naturalWidth > 0 && audio) { previewsReady = true; break; }
             await new Promise(resolve => setTimeout(resolve, 50));
           }
           if (!previewsReady) throw Error('素材库图片、音频或视频缩略预览未加载');

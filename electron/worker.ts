@@ -1,5 +1,5 @@
 // 后台只处理项目文件和素材；编辑器事实仍由渲染进程持有。
-import { mkdir, readFile, readdir, rename, copyFile, stat, open, rm, realpath } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, copyFile, stat, open, rm, realpath, writeFile } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { documentSchema, readProjectDocument } from '../src/core/document';
 import { buildProjectPreview, type ProjectPreview } from '../src/core/projectPreview';
+import { aggregatePeaks, encodeWaveform, WAVEFORM_SAMPLES_PER_SECOND, WAVEFORM_VERSION } from '../src/core/waveform';
 
 const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('list'), root: z.string() }),
@@ -103,6 +104,25 @@ async function probeDuration(file: string): Promise<number | undefined> {
   } catch { return undefined; }
 }
 
+async function decodePcm(file: string, signal: AbortSignal): Promise<{ pcm: Int16Array; sampleRate: number }> {
+  // 把音频解码为单声道 16-bit PCM；8 kHz 采样对 120 列/秒的峰值已足够，且大幅压缩内存占用。
+  return new Promise((resolve, reject) => {
+    const child = spawn(mediaTool('ffmpeg'), ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-f', 's16le', 'pipe:1'], { windowsHide: true, signal, stdio: ['ignore', 'pipe', 'pipe'] });
+    const chunks: Buffer[] = [];
+    let errorTail = '';
+    child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => { errorTail = (errorTail + chunk).slice(-2000); });
+    child.once('error', error => reject(signal.aborted ? Error('任务已取消') : error));
+    child.once('close', code => {
+      if (signal.aborted) return reject(Error('任务已取消'));
+      if (code !== 0) return reject(Error(`音频解码失败：${errorTail.slice(-300)}`));
+      const buffer = Buffer.concat(chunks);
+      resolve({ pcm: new Int16Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.length / 2)), sampleRate: 8000 });
+    });
+  });
+}
+
 async function analyzeMedia(request: Extract<z.infer<typeof requestSchema>, { method: 'analyze' }>, signal: AbortSignal, progress: (value: number) => void): Promise<unknown> {
   const requested = path.resolve(request.folder, request.assetPath);
   const assetsRoot = path.resolve(request.folder, 'assets');
@@ -114,19 +134,23 @@ async function analyzeMedia(request: Extract<z.infer<typeof requestSchema>, { me
   await mkdir(cacheRoot, { recursive: true });
   progress(5);
   if (request.kind === 'audio') {
-    // 波形缓存只保存透明白色形状，改色由画布即时完成，不触发音频重新分析。
+    // 峰值缓存只依赖源文件；缩放、拉长、裁剪与改色都在渲染端重采样，不重新分析音频。
     const sourceKey = crypto.createHash('sha256').update(request.assetPath).digest('hex').slice(0, 12);
-    const relative = `cache/${request.assetId}-${sourceKey}-neutral-wave.png`;
+    const relative = `cache/${request.assetId}-${sourceKey}-wave-v${WAVEFORM_VERSION}.bin`;
     const output = path.join(request.folder, relative);
+    let durationUs = await probeDuration(source) ?? request.outUs;
     await withCacheLock(output, signal, async () => {
       if (await stat(output).then(() => true).catch(() => false)) return;
-      const temporary = `${output}.${crypto.randomUUID()}.tmp.png`;
+      const temporary = `${output}.${crypto.randomUUID()}.tmp`;
       try {
-        await runFfmpeg(['-v', 'error', '-i', source, '-filter_complex', '[0:a]showwavespic=s=1600x60:colors=white,format=rgba,colorkey=black:0.01:0.0[v]', '-map', '[v]', '-frames:v', '1', '-y', temporary], request.outUs, signal, progress);
+        const { pcm, sampleRate } = await decodePcm(source, signal);
+        durationUs = Math.round(pcm.length / sampleRate * 1_000_000) || durationUs;
+        const columns = aggregatePeaks(pcm, sampleRate, WAVEFORM_SAMPLES_PER_SECOND);
+        await writeFile(temporary, Buffer.from(encodeWaveform({ samplesPerSecond: WAVEFORM_SAMPLES_PER_SECOND, sampleRate, durationUs, columns })));
         await rename(temporary, output);
       } catch (error) { await rm(temporary, { force: true }); throw error; }
     });
-    return { waveform: relative };
+    return { waveform: { path: relative, samplesPerSecond: WAVEFORM_SAMPLES_PER_SECOND, durationUs } };
   }
   const durationSec = (request.outUs - request.inUs) / 1_000_000;
   const rate = Math.min(2, request.pixelsPerSecond / 110, 60 / durationSec);

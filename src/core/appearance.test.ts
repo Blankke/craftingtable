@@ -1,6 +1,6 @@
 // 用法：npm.cmd exec -- vitest run src/core/appearance.test.ts。验证图片几何与标记关系的持久化契约。
 import { describe, expect, it } from 'vitest';
-import { resizeObject, styleOf } from './appearance';
+import { resizeObject, restoredImageRatio, styleOf } from './appearance';
 import { documentSchema, newDocument, shapeKinds, type CanvasObject } from './document';
 import { Editor } from './editor';
 import { hasShapeGeometry, shapeGroups } from './shapeGeometry';
@@ -23,6 +23,12 @@ describe('图片、样式与显式标记', () => {
     const object = image(); object.crop = { x: .1, y: .2, width: .7, height: .6 }; document.objects.push(object);
     expect(documentSchema.parse(JSON.parse(JSON.stringify(document)))).toEqual(document);
     object.crop.width = 1; expect(documentSchema.safeParse(document).success).toBe(false);
+  });
+  it('还原图片比例：无裁剪用自然尺寸，有裁剪按可见区域，保持高度不变', () => {
+    expect(restoredImageRatio(undefined, 400, 200)).toBe(2);
+    expect(restoredImageRatio({ width: .5, height: .25 }, 400, 200)).toBe(4);
+    // 高度 150 时还原比例重算宽度：150 * 4 = 600。
+    expect(150 * restoredImageRatio({ width: .5, height: .25 }, 400, 200)).toBe(600);
   });
   it('四类图库完整覆盖每个可保存图形，且不存在退化为方块的预览定义', () => {
     const grouped = Object.values(shapeGroups).flat();

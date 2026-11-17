@@ -99,7 +99,7 @@ test('实际创作规模项目能打开、显示素材并保存新增对象', as
       const updated = snapshot.assets.find(item => item.id === missingAsset.id);
       if (!updated || updated.path === missingAsset.path) return false;
       const sourceKey = createHash('sha256').update(updated.path).digest('hex').slice(0, 12);
-      return (await readdir(path.join(seeded.folder, 'cache'))).some(file => file.startsWith(`${updated.id}-${sourceKey}-`) && file.endsWith('-wave.png'));
+      return (await readdir(path.join(seeded.folder, 'cache'))).some(file => file.startsWith(`${updated.id}-${sourceKey}-`) && file.endsWith('-wave-v1.bin'));
     }, { timeout: 15_000 }).toBe(true);
     await page.mouse.click(100, 180);
     await expect(page.locator('.media-controls')).toContainText('sample.wav');

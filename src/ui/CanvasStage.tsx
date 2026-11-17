@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Rect, Text, Line, Group, Image as KonvaImage, Circle, Path, RegularPolygon } from 'react-konva';
+import { Stage, Layer, Rect, Text, Line, Group, Image as KonvaImage, Circle, Path, RegularPolygon, Shape } from 'react-konva';
 import type Konva from 'konva';
 import { ObjectAppearance } from './ObjectAppearance';
 import { resizeObject, styleOf } from '../core/appearance';
@@ -13,9 +13,10 @@ import { mediaSource } from './mediaSource';
 import { useLanguage } from './language';
 import { useTheme } from './themeStore';
 import { colorToHex, colorToRgba } from '../core/theme';
+import { decodeWaveform, resampleColumns, type WaveformPeaks } from '../core/waveform';
 
 export type Tool = 'select' | 'text' | typeof import('../core/document').shapeKinds[number] | 'arrow' | 'brush';
-export type MediaAnalysis = { waveform?: string; frames?: { path: string; timeUs: number }[]; processing?: boolean; progress?: number; taskId?: string; error?: string; errorCode?: string; retryable?: boolean };
+export type MediaAnalysis = { waveform?: { path: string; samplesPerSecond: number; durationUs: number }; frames?: { path: string; timeUs: number }[]; processing?: boolean; progress?: number; taskId?: string; error?: string; errorCode?: string; retryable?: boolean };
 type Point = { x: number; y: number };
 type Gesture =
   | { kind: 'pan'; start: Point; camera: Point }
@@ -54,8 +55,56 @@ function ImageContent({ path, width, height, x = 0, y = 0, host = 'asset', crop,
   return rendered ? <KonvaImage image={rendered} x={x} y={y} width={width} height={height} crop={crop && normalizedCrop ? { x: crop.x * image!.naturalWidth, y: crop.y * image!.naturalHeight, width: crop.width * image!.naturalWidth, height: crop.height * image!.naturalHeight } : crop} /> : <Rect x={x} y={y} width={width} height={height} fill="#f1f5f9" />;
 }
 
-function ObjectView({ object, assetPath, assetName, assetKind, assetDurationUs, analysis, markers, playheadUs, selected, trimMode, tool, note, onSelect, onSeek }: {
-  object: CanvasObject; assetPath?: string; assetName?: string; assetKind?: string; assetDurationUs?: number; analysis?: MediaAnalysis; markers: ProjectDocument['markers']; playheadUs?: number; selected: boolean; tool: Tool;
+// 峰值文件按路径缓存一次解码结果；裁剪、缩放与改色只在内存重采样，不重复请求或分析音频。
+const waveformCache = new Map<string, Promise<WaveformPeaks | null>>();
+function loadPeaks(path: string): Promise<WaveformPeaks | null> {
+  let cached = waveformCache.get(path);
+  if (!cached) {
+    cached = fetch(mediaSource(path, 'cache'))
+      .then(response => response.ok ? response.arrayBuffer() : null)
+      .then(buffer => buffer ? decodeWaveform(buffer) : null)
+      .catch(() => null);
+    waveformCache.set(path, cached);
+  }
+  return cached;
+}
+
+function WaveformView({ path, color, x, y, width, height, inUs, outUs }: {
+  path: string; color: string; x: number; y: number; width: number; height: number; inUs: number; outUs: number;
+}) {
+  // 峰值重采样到屏幕像素列，单条 Shape 绘制 1px 垂直峰值线；改裁剪、缩放与颜色都不拉伸图片。
+  const [columns, setColumns] = useState<{ min: number; max: number }[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setColumns(null);
+    const pixelWidth = Math.max(1, Math.floor(width));
+    void loadPeaks(path).then(peaks => {
+      if (cancelled) return;
+      setColumns(peaks ? resampleColumns(peaks, inUs, outUs, pixelWidth) : []);
+    });
+    return () => { cancelled = true; };
+  }, [path, inUs, outUs, width]);
+  if (!columns || !columns.length) return null;
+  return <Shape x={x} y={y} width={width} height={height} fill="transparent" stroke="transparent" listening={false} sceneFunc={context => {
+    const ctx = context._context;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const center = height / 2;
+    const half = height / 2;
+    for (let index = 0; index < columns.length; index++) {
+      const column = columns[index];
+      const top = center - (column.max / 32768) * half;
+      const bottom = center - (column.min / 32768) * half;
+      ctx.moveTo(index + 0.5, top);
+      ctx.lineTo(index + 0.5, bottom);
+    }
+    ctx.stroke();
+  }} />;
+}
+
+function ObjectView({ object, assetPath, assetName, assetKind, analysis, markers, playheadUs, selected, trimMode, tool, note, onSelect, onSeek }: {
+  object: CanvasObject; assetPath?: string; assetName?: string; assetKind?: string; analysis?: MediaAnalysis; markers: ProjectDocument['markers']; playheadUs?: number; selected: boolean; tool: Tool;
   trimMode: boolean; note?: Note;
   onSelect(additive: boolean): void; onSeek(timeUs: number, play: boolean): void;
 }) {
@@ -90,7 +139,7 @@ function ObjectView({ object, assetPath, assetName, assetKind, assetDurationUs, 
     </> : null}
     {object.kind === 'media' ? <>
       <Rect width={width} height={object.height} fill={selected ? selectionFill : colorToRgba(trackColor, 0.14)} stroke={styleOf(object).strokeEnabled ? trackColor : undefined} strokeWidth={styleOf(object).strokeWidth} dash={styleOf(object).dash === 'solid' ? [] : [6, 4]} cornerRadius={8}/>
-      {assetKind === 'audio' && analysis?.waveform && <ImageContent host="cache" path={analysis.waveform} tint={trackColor} x={8} y={27} width={Math.max(1, width - 16)} height={42} crop={{ x: 1600 * object.inUs / (assetDurationUs || object.outUs), y: 0, width: 1600 * (object.outUs - object.inUs) / (assetDurationUs || object.outUs), height: 60 }} />}
+      {assetKind === 'audio' && analysis?.waveform && <WaveformView path={analysis.waveform.path} color={trackColor} x={8} y={27} width={Math.max(1, width - 16)} height={42} inUs={object.inUs} outUs={object.outUs} />}
       {assetKind === 'video' && <Group clipX={0} clipY={24} clipWidth={width} clipHeight={50}>{analysis?.frames?.map(frame => <ImageContent key={frame.path} host="cache" path={frame.path} x={(frame.timeUs - object.inUs) / 1_000_000 * object.pixelsPerSecond} y={24} width={Math.min(120, width / Math.max(1, analysis.frames!.length))} height={50} />)}</Group>}
       <Text x={12} y={8} width={Math.max(80, width - 20)} ellipsis text={analysis?.error ? t('处理失败，见右侧任务', 'Processing failed; see tasks') : `${assetKind === 'audio' ? '♪' : '▶'} ${assetName ?? t('缺失素材', 'Missing asset')}${analysis?.processing ? ` · ${t('处理中', 'Processing')} ${analysis.progress ?? 0}%` : ''}`} fontSize={13} fill={fg} />
       {markers.filter(marker => marker.timeUs >= object.inUs && marker.timeUs <= object.outUs).map(marker => { const x = (marker.timeUs - object.inUs) / 1_000_000 * object.pixelsPerSecond; return <Group key={marker.id} name={`marker:${marker.id}`} x={x}
@@ -223,8 +272,10 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
   const ghostRef = useRef<CanvasObject[]>([]);
   const [ghosts, setGhosts] = useState<CanvasObject[]>([]);
   const setGhost = (objects: CanvasObject[]) => { ghostRef.current = objects; setGhosts(objects); };
+  // 从媒体标记拖出文本批注时的虚影：随指针显示 220×72 文本框，悬停文本对象时给出目标命中反馈。
+  const [markerGhost, setMarkerGhost] = useState<{ x: number; y: number; targetId: string | null } | null>(null);
   const cancel = () => {
-    gesture.current = null; setGhost([]); editor.cancelPreview();
+    gesture.current = null; setGhost([]); setMarkerGhost(null); editor.cancelPreview();
     previewLine.current?.hide(); previewRect.current?.hide();
     stageRef.current?.position(editor.document.camera);
     const canvas = stageRef.current?.container().closest<HTMLElement>('.canvas');
@@ -260,6 +311,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
     const active = gesture.current; gesture.current = null;
     previewLine.current?.hide(); previewRect.current?.hide();
     if (!active) return;
+    setMarkerGhost(null);
     const end = worldPoint(stage);
     if (!end) return;
     if (active.kind === 'move' || active.kind === 'resize') {
@@ -441,7 +493,17 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
         return;
       }
       if (active.kind === 'brush') { active.points.push(point); previewLine.current?.points(active.points.flatMap(item => [item.x, item.y])); previewLine.current?.show(); previewLine.current?.getLayer()?.batchDraw(); return; }
-      if (active.kind === 'arrow') { previewLine.current?.points([active.start.x, active.start.y, point.x, point.y]); previewLine.current?.show(); previewLine.current?.getLayer()?.batchDraw(); return; }
+      if (active.kind === 'arrow') {
+        previewLine.current?.points([active.start.x, active.start.y, point.x, point.y]);
+        previewLine.current?.show();
+        previewLine.current?.getLayer()?.batchDraw();
+        // 从标记拖出批注时，跟随指针显示 220×72 文本框虚影；悬停已有文本对象给出命中反馈。
+        if (active.markerId) {
+          const hit = document.objects.find(item => item.kind === 'text' && point.x >= item.x && point.x <= item.x + item.width && point.y >= item.y && point.y <= item.y + item.height);
+          setMarkerGhost({ x: point.x, y: point.y, targetId: hit?.id ?? null });
+        }
+        return;
+      }
       previewRect.current?.setAttrs({ x: Math.min(active.start.x, point.x), y: Math.min(active.start.y, point.y), width: Math.abs(point.x - active.start.x), height: Math.abs(point.y - active.start.y), visible: true });
       previewRect.current?.getLayer()?.batchDraw();
     }}
@@ -474,11 +536,16 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
     }}
     onDblClick={event => { const id = objectIdFromNode(event.target); const object = document.objects.find(item => item.id === id); if (object?.kind === 'note') { onOpenNote(object.noteId); return; } if (object && ('text' in object || 'fill' in object)) setEditing({ id: object.id, text: object.text ?? '' }); }}>
     <Layer>
-      {visibleObjects.map(object => { const asset = 'assetId' in object ? document.assets.find(item => item.id === object.assetId) : undefined; const note = object.kind === 'note' ? document.notes.find(item => item.id === object.noteId) : undefined; return <ObjectView key={object.id} object={object} tool={tool} selected={selected.includes(object.id)} trimMode={trimMode && playback?.mediaId === object.id} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} assetDurationUs={asset?.durationUs} analysis={analysis[object.id]} markers={document.markers.filter(marker => marker.mediaId === object.id)} playheadUs={playback?.mediaId === object.id ? playback.timeUs : undefined} note={note} onSelect={additive => onSelect(additive ? (selected.includes(object.id) ? selected.filter(id => id !== object.id) : [...selected, object.id]) : [object.id])} onSeek={(timeUs, play) => onPlayback(object.id, timeUs, play)} />; })}
+      {visibleObjects.map(object => { const asset = 'assetId' in object ? document.assets.find(item => item.id === object.assetId) : undefined; const note = object.kind === 'note' ? document.notes.find(item => item.id === object.noteId) : undefined; return <ObjectView key={object.id} object={object} tool={tool} selected={selected.includes(object.id)} trimMode={trimMode && playback?.mediaId === object.id} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[object.id]} markers={document.markers.filter(marker => marker.mediaId === object.id)} playheadUs={playback?.mediaId === object.id ? playback.timeUs : undefined} note={note} onSelect={additive => onSelect(additive ? (selected.includes(object.id) ? selected.filter(id => id !== object.id) : [...selected, object.id]) : [object.id])} onSeek={(timeUs, play) => onPlayback(object.id, timeUs, play)} />; })}
     </Layer>
     <Layer listening={false}>
       {/* 虚影独立于原对象绘制，拖动期间不会改变项目文档。 */}
-      {ghosts.map(ghost => { const asset = 'assetId' in ghost ? document.assets.find(item => item.id === ghost.assetId) : undefined; const note = ghost.kind === 'note' ? document.notes.find(item => item.id === ghost.noteId) : undefined; return <ObjectView key={`ghost-${ghost.id}`} object={{ ...ghost, style: { ...styleOf(ghost), opacity: 0.4 } }} tool={tool} selected={false} trimMode={false} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} assetDurationUs={asset?.durationUs} analysis={analysis[ghost.id]} markers={[]} note={note} onSelect={() => undefined} onSeek={() => undefined} />; })}
+      {ghosts.map(ghost => { const asset = 'assetId' in ghost ? document.assets.find(item => item.id === ghost.assetId) : undefined; const note = ghost.kind === 'note' ? document.notes.find(item => item.id === ghost.noteId) : undefined; return <ObjectView key={`ghost-${ghost.id}`} object={{ ...ghost, style: { ...styleOf(ghost), opacity: 0.4 } }} tool={tool} selected={false} trimMode={false} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[ghost.id]} markers={[]} note={note} onSelect={() => undefined} onSeek={() => undefined} />; })}
+      {markerGhost && !markerGhost.targetId && <Group x={markerGhost.x} y={markerGhost.y} opacity={0.5} listening={false}>
+        <Rect width={220} height={72} fill="#fffef5" stroke={accent} strokeWidth={1} dash={[5, 3]} cornerRadius={6} />
+        <Text x={12} y={27} width={196} text={t('拖出笔记', 'Drag to annotate')} fontSize={16} fill={accent} listening={false} />
+      </Group>}
+      {markerGhost?.targetId && (() => { const target = document.objects.find(item => item.id === markerGhost.targetId); if (!target || target.kind !== 'text') return null; return <Rect x={target.x} y={target.y} width={target.width} height={target.height} stroke={accent} strokeWidth={2} dash={[4, 4]} fill={colorToRgba(tokens.primary, 0.12)} listening={false} />; })()}
     </Layer>
     <Layer>
       {document.connections.map(connection => {

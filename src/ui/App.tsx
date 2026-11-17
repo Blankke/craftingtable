@@ -11,6 +11,7 @@ import { ShapeIcon } from './ShapeIcon';
 import { GlassFolderCard, type FolderArt } from './GlassFolderCard';
 const NoteEditor = lazy(() => import('./NoteEditor').then(module => ({ default: module.NoteEditor })));
 import { WorkspaceDock } from './WorkspaceDock';
+import { WorkspaceModeSwitch, type WorkspaceMode } from './WorkspaceModeSwitch';
 import { shapeKinds } from '../core/document';
 import { shapeLabels } from '../core/appearance';
 import { mediaSource } from './mediaSource';
@@ -26,6 +27,7 @@ import { useTheme } from './themeStore';
 import { autoTrackColor, colorToHex } from '../core/theme';
 import { ThemePicker } from './ThemePicker';
 import { shapeGroups } from '../core/shapeGeometry';
+import { useSplashStore } from './splashStore';
 // main.tsx 在挂载前确认 preload 已就绪；渲染端只使用桌面 IPC。
 const api = window.workbench!;
 function useEditor(editor: Editor): ProjectDocument { return useSyncExternalStore(editor.subscribe, () => editor.document); }
@@ -56,6 +58,7 @@ export function App() {
   const setSelected = useInteractionStore(state => state.setSelected);
   const setSelectedConnections = useInteractionStore(state => state.setSelectedConnections);
   const resetInteraction = useInteractionStore(state => state.reset);
+  const dismissSplash = useSplashStore(state => state.dismiss);
   const [saveState, setSaveState] = useState('已保存');
   const [themeOpen, setThemeOpen] = useState(false);
   const [shapeSearch, setShapeSearch] = useState('');
@@ -63,6 +66,8 @@ export function App() {
   const [noteId, setNoteId] = useState<string | null>(null);
   const [readingNoteId, setReadingNoteId] = useState<string | null>(null);
   const [openNoteIds, setOpenNoteIds] = useState<string[]>([]);
+  // 工作台模式由 App 显式持有，不再用 noteId !== null 隐式判断；模式不写入项目数据。
+  const [mode, setMode] = useState<WorkspaceMode>('canvas');
   const playbackMediaId = usePlaybackStore(state => state.playback?.mediaId);
   const setPlayback = usePlaybackStore(state => state.setPlayback);
   const trimMode = useInteractionStore(state => state.trimMode);
@@ -114,7 +119,10 @@ export function App() {
   }, [editor, folder, recoveredProject]);
   const mediaSignature = document.objects.filter(item => item.kind === 'media').map(item => {
     const asset = document.assets.find(candidate => candidate.id === item.assetId);
-    return `${item.id}:${item.assetId}:${asset?.path}:${asset?.status}:${item.inUs}:${item.outUs}:${item.pixelsPerSecond}`;
+    // 音频峰值只依赖源文件；裁剪、时间缩放与轨道长度变化不触发重新分析。
+    return asset?.kind === 'audio'
+      ? `${item.id}:${item.assetId}:${asset.path}`
+      : `${item.id}:${item.assetId}:${asset?.path}:${asset?.status}:${item.inUs}:${item.outUs}:${item.pixelsPerSecond}`;
   }).join('|');
   const analysisKey = editor.isPreviewing ? 'preview' : mediaSignature;
   const selectedObjects = document.objects.filter(item => selected.includes(item.id));
@@ -164,7 +172,7 @@ export function App() {
       const next = new Editor(newDocument(name));
       await api.saveProject(next.document);
       const list = await api.listProjects();
-      resetInteraction(); setPlayback(null); setRecoveredProject(false); setFolder(created); setEditor(next);
+      resetInteraction(); setPlayback(null); setRecoveredProject(false); setFolder(created); setEditor(next); dismissSplash();
       setProjects(list); setCreating(false); setHomeMenu(false); setHomeError(''); setProjectName('');
     } catch (error) { setHomeError(`${t('新建项目失败', 'Could not create project')}：${String(error)}`); }
     finally { creatingLock.current = false; setCreatingPending(false); }
@@ -173,7 +181,7 @@ export function App() {
     try {
       setHomeError(''); setRetryProjectPath(null);
       const loaded = await api.openProject(path);
-      resetInteraction(); setPlayback(null); setRecoveredProject(!!loaded.recovered); setEditor(new Editor(loaded)); setFolder(path);
+      resetInteraction(); setPlayback(null); setRecoveredProject(!!loaded.recovered); setEditor(new Editor(loaded)); setFolder(path); dismissSplash();
       setSaveState(loaded.recovered ? '已载入恢复快照，请保存' : '已保存');
     } catch (error) { setHomeError(`${t('打开项目失败', 'Could not open project')}：${String(error)}`); setRetryProjectPath(path); }
   }
@@ -182,7 +190,7 @@ export function App() {
     try {
       const selected = await api.pickProjectFolder();
       if (!selected) return;
-      resetInteraction(); setPlayback(null); setRecoveredProject(!!selected.document.recovered); setEditor(new Editor(selected.document)); setFolder(selected.folder);
+      resetInteraction(); setPlayback(null); setRecoveredProject(!!selected.document.recovered); setEditor(new Editor(selected.document)); setFolder(selected.folder); dismissSplash();
       setSaveState(selected.document.recovered ? '已载入恢复快照，请保存' : '已保存');
     } catch (error) { alert(`${t('打开项目文件夹失败', 'Could not open project folder')}：${String(error)}`); }
   }
@@ -302,7 +310,7 @@ export function App() {
     } catch (error) { alert('导入失败：' + String(error)); } finally { setImporting(false); }
   }
   function keyDown(event: KeyboardEvent) {
-    if (!folder || noteId || creating || themeOpen || event.isComposing || event.key === 'Process') return;
+    if (!folder || mode !== 'canvas' || creating || themeOpen || event.isComposing || event.key === 'Process') return;
     const playback = usePlaybackStore.getState().playback;
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
     if (event.key === 'Delete' || event.key === 'Backspace') { if (selectedConnections.length) { editor.deleteConnections(selectedConnections); setSelectedConnections([]); } else if (selected.length) { editor.deleteObjects(selected); setSelected([]); } }
@@ -317,7 +325,7 @@ export function App() {
     if (event.code === 'Space') { event.preventDefault(); if (!event.repeat) spacePanUsed.current = false; spacePressed.current = true; }
   }
   function keyUp(event: KeyboardEvent) {
-    if (!folder || noteId || creating || themeOpen || event.isComposing) return;
+    if (!folder || mode !== 'canvas' || creating || themeOpen || event.isComposing) return;
     if (event.code !== 'Space' || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
     event.preventDefault();
     spacePressed.current = false;
@@ -336,16 +344,26 @@ export function App() {
   const selectedMedia = selectedObjects.length === 1 && selectedObjects[0].kind === 'media' ? selectedObjects[0] : null;
   const mergedInspector = selectedConnectionObjects.length
     ? <ConnectionInspector key={selectedConnections.join(',')} editor={editor} connections={selectedConnectionObjects}/>
-    : <>{selectedMedia && <MediaControls document={document} editor={editor} trimMode={trimMode} onTrimMode={setTrimMode}/>}<ObjectInspector key={selected.join(',')} editor={editor} objects={selectedObjects}/></>;
+    : <>{selectedMedia && <MediaControls document={document} editor={editor} trimMode={trimMode} onTrimMode={setTrimMode}/>}<ObjectInspector key={selected.join(',')} editor={editor} objects={selectedObjects} assets={document.assets}/></>;
   const currentNote = noteId ? document.notes.find(item => item.id === noteId) : null;
-  function openNote(id: string, reading = false) { setOpenNoteIds(ids => ids.includes(id) ? ids : [...ids, id]); setReadingNoteId(reading ? id : null); setNoteId(id); }
+  function openNote(id: string, reading = false) { setOpenNoteIds(ids => ids.includes(id) ? ids : [...ids, id]); setReadingNoteId(reading ? id : null); setNoteId(id); setMode('notes'); }
   function closeNote(id: string) {
     const remaining = openNoteIds.filter(item => item !== id);
     setOpenNoteIds(remaining);
-    if (noteId === id) setNoteId(remaining.at(-1) ?? null);
+    if (noteId === id) {
+      const next = remaining.at(-1) ?? null;
+      setNoteId(next);
+      // 关闭最后一个标签回到画布；其余情况保留当前笔记与标签。
+      if (!next) setMode('canvas');
+    }
   }
   const createNote = () => { const id = editor.createNote(t('未命名笔记', 'Untitled note')); openNote(id); };
   const openNotes = () => { if (document.notes.length) openNote(document.notes[0].id); else createNote(); };
+  // 切换器统一控制模式；切到笔记但当前笔记无效（未打开或已被删除）时，先恢复或自动创建一篇。
+  const changeMode = (next: WorkspaceMode) => {
+    if (next === 'notes' && !currentNote) openNotes();
+    setMode(next);
+  };
   if (!folder) return <main className="home">
     <header className="home-header"><strong>{t('音视频创作策划工作台', 'Media Planning Workbench')}</strong>{themeButton}{settings}</header>
     <div className="project-grid">
@@ -375,11 +393,11 @@ export function App() {
     <button onClick={async () => { try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); setProjects(await api.listProjects()); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button>
     <strong>{document.name}</strong><span>{saveState === '已保存' ? t('已保存', 'Saved') : saveState === '未保存' ? t('未保存', 'Unsaved') : saveState === '保存失败' ? t('保存失败', 'Save failed') : t('已载入恢复快照，请保存', 'Recovery loaded; please save')}</span>
     {saveState === '保存失败' && <button onClick={() => { void autosave.current?.flush().catch(() => undefined); }}>{t('重试保存', 'Retry save')}</button>}
-    <button onClick={() => editor.undo()}>{t('撤销', 'Undo')}</button><button onClick={() => editor.redo()}>{t('重做', 'Redo')}</button><button onClick={openNotes}>{t('笔记', 'Notes')}</button>{themeButton}{settings}
-  </header>{noteId && currentNote ? <div className="note-view"><div className="note-tabs">
+    <WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /><button onClick={() => editor.undo()}>{t('撤销', 'Undo')}</button><button onClick={() => editor.redo()}>{t('重做', 'Redo')}</button>{themeButton}{settings}
+  </header>{mode === 'notes' && currentNote ? <div className="note-view"><div className="note-tabs">
     {openNoteIds.map(id => document.notes.find(note => note.id === id)).filter((note): note is ProjectDocument['notes'][number] => !!note).map(n => <div key={n.id} className={`note-tab${n.id === noteId ? ' active' : ''}`}><button onClick={() => setNoteId(n.id)}>{n.name || t('未命名', 'Untitled')}</button><button aria-label={t('关闭标签', 'Close tab')} onClick={() => closeNote(n.id)}>×</button></div>)}
     <button onClick={createNote}>＋ {t('笔记', 'Note')}</button>
-  </div><Suspense fallback={<div className="note-paper">{t('正在打开笔记…', 'Opening note…')}</div>}><NoteEditor key={currentNote.id} note={currentNote} assets={document.assets} initialReadMode={readingNoteId === currentNote.id} onBack={() => setNoteId(null)} onChange={change => editor.updateNote(noteId!, change)} onImportImages={importNoteImages} /></Suspense></div> : <div className="workspace"><section ref={canvasRef} className="canvas" data-selected={selected.join(',')} style={{ backgroundSize: `${24 * document.camera.scale}px ${24 * document.camera.scale}px`, backgroundPosition: `${document.camera.x}px ${document.camera.y}px` }} onDragEnter={() => { if (!externalDrag.current) cancelledDrop.current = false; externalDrag.current = true; }} onDragOver={event => { event.preventDefault(); if (event.buttons & 2) { cancelledDrop.current = true; setDropPreview(null); } event.dataTransfer.dropEffect = cancelledDrop.current ? 'none' : 'copy'; if (!cancelledDrop.current) setDropPreview({ x: event.clientX, y: event.clientY, label: '松开放入素材' }); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDropPreview(null); externalDrag.current = false; } }} onDrop={dropItem}>
+  </div><Suspense fallback={<div className="note-paper">{t('正在打开笔记…', 'Opening note…')}</div>}><NoteEditor key={currentNote.id} note={currentNote} assets={document.assets} initialReadMode={readingNoteId === currentNote.id} onChange={change => editor.updateNote(noteId!, change)} onImportImages={importNoteImages} /></Suspense></div> : <div className="workspace"><section ref={canvasRef} className="canvas" data-selected={selected.join(',')} style={{ backgroundSize: `${24 * document.camera.scale}px ${24 * document.camera.scale}px`, backgroundPosition: `${document.camera.x}px ${document.camera.y}px` }} onDragEnter={() => { if (!externalDrag.current) cancelledDrop.current = false; externalDrag.current = true; }} onDragOver={event => { event.preventDefault(); if (event.buttons & 2) { cancelledDrop.current = true; setDropPreview(null); } event.dataTransfer.dropEffect = cancelledDrop.current ? 'none' : 'copy'; if (!cancelledDrop.current) setDropPreview({ x: event.clientX, y: event.clientY, label: '松开放入素材' }); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDropPreview(null); externalDrag.current = false; } }} onDrop={dropItem}>
     <CanvasStage editor={editor} document={document} viewport={viewport} tool={tool} arrowRouting={arrowRouting} selected={selected} trimMode={trimMode} analysis={analysis} onSelect={setSelected} onTool={setTool} onSpacePan={() => { spacePanUsed.current = true; }} onOpenNote={id => openNote(id, true)}/>
     {importing && <div className="import-status" role="status">正在导入素材…</div>}
   </section><WorkspaceDock tools={<><input className="shape-search" aria-label={t('搜索图形', 'Search shapes')} placeholder={t('搜索图形', 'Search shapes')} value={shapeSearch} onChange={event => setShapeSearch(event.target.value)} />

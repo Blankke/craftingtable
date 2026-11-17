@@ -15,7 +15,7 @@ declare global {
       importDroppedFiles(files: File[]): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;
       relinkAsset(kind: 'video' | 'audio' | 'image' | 'text'): Promise<ProjectDocument['assets'][number] | null>;
       createTextAsset(input: { name: string; content: string }): Promise<ProjectDocument['assets'][number]>;
-      analyzeAsset(input: { assetId: string; assetPath: string; kind: 'audio' | 'video'; inUs: number; outUs: number; pixelsPerSecond: number; taskId: string }): Promise<{ ok: true; result: { waveform?: string; frames?: { path: string; timeUs: number }[] } } | { ok: false; error: { code: string; message: string; retryable: boolean } }>;
+      analyzeAsset(input: { assetId: string; assetPath: string; kind: 'audio' | 'video'; inUs: number; outUs: number; pixelsPerSecond: number; taskId: string }): Promise<{ ok: true; result: { waveform?: { path: string; samplesPerSecond: number; durationUs: number }; frames?: { path: string; timeUs: number }[] } } | { ok: false; error: { code: string; message: string; retryable: boolean } }>;
       cancelTask(taskId: string): Promise<{ cancelled: boolean }>;
       onTaskProgress(handler: (progress: { taskId: string; assetId: string; percent: number }) => void): () => void;
       onBackendRestart(handler: () => void): () => void;

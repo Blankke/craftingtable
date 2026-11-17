@@ -49,6 +49,17 @@ describe('笔记模型与命令', () => {
     editor.updateNote(id, note => { note.document.content = [{ type: 'paragraph', content: [{ type: 'text', text: '删除引用' }] }]; });
     expect(editor.document.notes[0].annotations[0]).toMatchObject({ id: annotationId, orphaned: true });
   });
+  it('textStyle mark 由通用校验容纳，JSON 往返无需升级 schemaVersion', () => {
+    const note = newNote('样式');
+    note.document.content = [{ type: 'paragraph', content: [{ type: 'text', text: '带字体字号', marks: [{ type: 'textStyle', attrs: { fontFamily: 'Georgia', fontSize: '24px' } }] }] }];
+    expect(() => noteSchema.parse(JSON.parse(JSON.stringify(note)))).not.toThrow();
+    const document = newDocument('样式项目');
+    document.notes.push(note);
+    const parsed = documentSchema.parse(JSON.parse(JSON.stringify(document)));
+    expect(parsed.schemaVersion).toBe(3);
+    expect(parsed.notes[0].document.content[0].content![0].marks).toEqual([{ type: 'textStyle', attrs: { fontFamily: 'Georgia', fontSize: '24px' } }]);
+    expect(noteText(parsed.notes[0])).toBe('带字体字号');
+  });
   it('笔记图片引用项目素材，复制笔记时同步重写批注 ID 和 mark', () => {
     const editor = new Editor(newDocument('共享'));
     const assetId = crypto.randomUUID(), noteId = editor.createNote('随笔'), annotationId = crypto.randomUUID();

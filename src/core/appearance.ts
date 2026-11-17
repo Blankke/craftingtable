@@ -14,3 +14,9 @@ export function resizeObject(object: CanvasObject, width: number, height: number
   if (object.kind === 'stroke') object.points = object.points.map(point => ({ x: object.x + (point.x - object.x) * width / object.width, y: object.y + (point.y - object.y) * height / object.height }));
   object.width = width; object.height = height;
 }
+
+/** 图片「还原比例」的目标宽高比：存在裁剪时按可见裁剪区域，否则按素材自然尺寸。 */
+export function restoredImageRatio(crop: { width: number; height: number } | undefined, naturalWidth: number, naturalHeight: number): number {
+  if (crop) return (crop.width * naturalWidth) / (crop.height * naturalHeight);
+  return naturalWidth / naturalHeight;
+}

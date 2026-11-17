@@ -12,12 +12,14 @@
 
 - `src/core/`：项目文档模型、校验、编辑命令、自动保存和时间刻度；文档是编辑器的单一事实来源。
 - `src/ui/`：React 界面、画布、素材库、播放控件、任务状态、语言与设置面板。
-- `src/ui/WorkspaceDock.tsx`：图标视图栏、侧栏宽度调整和面板高度调整；媒体工作区位于素材库下方。画布通过 ResizeObserver 跟随可用空间。
+- `src/ui/WorkspaceDock.tsx`、`src/ui/dockLayout.ts`：图标视图栏、侧栏宽度拖拽与受控网格分栏；可见面板之间插入水平分隔线，拖动只调整相邻两块，侧栏宽度与三块面板高度写入本机 localStorage 并统一归一化。画布通过 ResizeObserver 跟随可用空间。
+- `src/ui/WorkspaceModeSwitch.tsx`：受控的笔记/画布模式切换器，固定尺寸的灰色选区与笑脸小球；`App` 显式持有模式，不再用 `noteId` 隐式判断。
 - `src/core/appearance.ts`、`src/core/shapeGeometry.ts`、`src/ui/ObjectAppearance.tsx`、`src/ui/ObjectInspector.tsx`：统一处理图形样式、文字、尺寸及图片裁剪；`shapeGeometry.ts` 是固定图库的单一几何来源，画布、工具图标和首页预览均复用它。
+- `src/core/waveform.ts`：单声道 PCM 峰值聚合、带版本头的二进制缓存编解码与按像素重采样，后台 worker 与渲染端共用；删除固定 PNG 波形方案。
 - `src/core/theme.ts`、`src/ui/themeStore.ts`、`src/ui/ThemePicker.tsx`：主题 Token（以 oklch 为权威值，含明暗两套）、颜色换算（oklch↔sRGB）、主题持久化与选择界面；`useTheme()` 提供当前 Token，CSS 变量由 `applyCssVars` 注入。设置面板中的“强制播放动画”也由主题存储持久化，并以根节点属性覆盖系统的减少动态效果偏好。
-- `src/core/elementStyles.ts`、`src/core/pantone.ts`、`src/ui/ColorEditor.tsx`、`src/ui/ConnectionInspector.tsx`、`src/ui/ShapeIcon.tsx`：元素样式预设、箭头线型/头部样式、Pantone 年度色库、颜色编辑器、连接线样式编辑与工具区形状预览。
+- `src/core/elementStyles.ts`、`src/core/pantone.ts`、`src/ui/ColorEditor.tsx`、`src/ui/ConnectionInspector.tsx`、`src/ui/ShapeIcon.tsx`：元素样式预设、箭头线型/头部样式、Pantone 年度色库、统一颜色弹层（主题色/Pantone/自定义）、连接线样式编辑与工具区无填充描边轮廓预览。
 - 图库按 General、Basic、Arrows、Flowchart 四类组织，可折叠和搜索；固定的图形标识、工具预览、画布和首页预览复用 `shapeGeometry.ts` 的几何定义，避免预览退化为方块。
-- `src/core/note.ts`、`src/ui/NoteEditor.tsx`、`src/ui/SplashScreen.tsx`、`src/ui/GlassFolderCard.tsx`：笔记的单一 Tiptap JSON 正文、稳定批注 mark、项目素材图片节点、笔记编辑器、手写启动画面与玻璃文件夹项目卡片。
+- `src/core/note.ts`、`src/ui/NoteEditor.tsx`、`src/ui/SplashScreen.tsx`、`src/ui/splashStore.ts`、`src/ui/GlassFolderCard.tsx`：笔记的单一 Tiptap JSON 正文、稳定批注 mark、textStyle 字体/字号 mark 与 BubbleMenu 浮动菜单、项目素材图片节点、笔记编辑器、一次性手写启动画面与玻璃文件夹项目卡片。
 - Hello 路径由 `scripts/generate-hello-path.mjs` 从本地 Indie Flower 字体生成，构建和桌面开发入口会自动重建 `src/ui/helloPath.ts`。字体及 OFL 授权保存在 `src/assets/fonts/`；文件夹原版组件保存在 `src/ui/vendor/GlassFolderOriginal.tsx`，项目入口由 `GlassFolderCard` 包装。
 - 笔记正文组件按需加载，单个 Tiptap 编辑器管理跨段选区、中文组合输入、粘贴与撤销；图片节点引用项目素材，外部图片粘贴或拖入经受限 IPC 导入后插入光标位置，可调整宽度与左右对齐。批注用稳定 ID mark 锚定，可跨段复用；右侧卡片按实际文字位置避让并以虚线正交连线，滚动、编辑、缩放和版心变化后会重算。引用原文删除后保留批注并标记失效。笔记复制会同步生成独立批注 ID；多个画布缩略图仍可指向同一笔记，双击以阅读模式打开。
 - `src/ui/mediaSource.ts`：把项目相对路径映射到 Electron 受限媒体协议；项目读写通过 preload 暴露的受限 API 调用。
@@ -26,7 +28,7 @@
 - `electron/devDirectories.ts`：计算开发实例的用户数据目录与项目目录，防止 Chromium 缓存落在仓库所在卷。
 - `electron/preload.ts`：向渲染进程暴露受限 API；不直接暴露 Node 文件系统。
 - `electron/worker.ts`：项目和素材文件读写、媒体时长检测、FFmpeg 缓存任务及恢复快照。
-- 首页列表只读项目文档，按修订缓存由实际对象生成的 SVG 预览和 FFmpeg 媒体缩略图；画布预览复现项目保存的最后相机视口，列出项目不切换活动项目。音频波形缓存为透明白色 PNG，画布按轨道颜色即时着色，改色不重新分析素材。
+- 首页列表只读项目文档，按修订缓存由实际对象生成的 SVG 预览和 FFmpeg 媒体缩略图；画布预览复现项目保存的最后相机视口，列出项目不切换活动项目。音频波形缓存为带版本头的单声道 PCM 峰值二进制文件，画布按裁剪区间与 pixelsPerSecond 重采样到像素列并以单条 Konva Shape 绘制 1px 峰值线，改色与时间缩放不重新分析素材。
 - `scripts/`：桌面构建、媒体工具准备、免安装开发入口与受限范围内的测试产物清理。`dev-desktop.mjs` 在 Windows 下先切换 UTF-8 控制台，再打印 Vite 和 Electron 启动进度并保留子进程日志供排查；`preview-home.mjs` 使用独立临时项目和固定真实图片截取 Hello、文件夹静止与展开状态，供视觉闭环验收。所有脚本可从仓库根目录执行。
 - `tests/e2e/` 与 `tests/fixtures/`：端到端用例和固定的小样本素材。测试项目使用独立临时目录，不写入正式用户项目。
 - `vendor/`：FFmpeg 授权信息及本机准备的可执行文件。可执行文件不进 Git，打包前由 `prepare:media` 校验和准备。

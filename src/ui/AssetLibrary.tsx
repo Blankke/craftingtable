@@ -7,19 +7,20 @@ function AssetPreview({ asset }: { asset: ProjectDocument['assets'][number] }) {
   const [thumbnail, setThumbnail] = useState<string | null>(null);
   useEffect(() => {
     setThumbnail(null);
-    if (!['video', 'audio'].includes(asset.kind) || asset.status === 'missing') return;
+    // 视频提取首帧作为缩略图；音频缩略图改为固定音符占位，不再生成 PNG 波形。
+    if (asset.kind !== 'video' || asset.status === 'missing') return;
     let cancelled = false;
     const taskId = crypto.randomUUID();
-    // 视频提取首帧，音频生成波形；两者共用后台有界任务队列和可重建缓存。
-    void window.workbench!.analyzeAsset({ assetId: asset.id, assetPath: asset.path, kind: asset.kind as 'video' | 'audio', inUs: 0, outUs: asset.kind === 'video' ? Math.min(asset.durationUs || 1_000_000, 1_000_000) : asset.durationUs || 1_000_000, pixelsPerSecond: 120, taskId })
-      .then(result => { if (!cancelled && result.ok) setThumbnail(asset.kind === 'video' ? result.result.frames?.[0]?.path ?? null : result.result.waveform ?? null); })
+    void window.workbench!.analyzeAsset({ assetId: asset.id, assetPath: asset.path, kind: 'video', inUs: 0, outUs: Math.min(asset.durationUs || 1_000_000, 1_000_000), pixelsPerSecond: 120, taskId })
+      .then(result => { if (!cancelled && result.ok) setThumbnail(result.result.frames?.[0]?.path ?? null); })
       .catch(() => undefined);
     return () => { cancelled = true; void window.workbench!.cancelTask(taskId).catch(() => undefined); };
   }, [asset.id, asset.path, asset.durationUs, asset.kind, asset.status]);
   if (asset.status === 'missing') return <span className="asset-preview asset-preview-empty">?</span>;
   const source = mediaSource(asset.path);
   if (asset.kind === 'image') return <img className="asset-preview" src={source} loading="lazy" alt="" />;
-  if (asset.kind === 'video' || asset.kind === 'audio') return thumbnail ? <img className="asset-preview" src={mediaSource(thumbnail, 'cache')} alt="" /> : <span className="asset-preview asset-preview-empty">{asset.kind === 'video' ? '▶' : '♪'}</span>;
+  if (asset.kind === 'video') return thumbnail ? <img className="asset-preview" src={mediaSource(thumbnail, 'cache')} alt="" /> : <span className="asset-preview asset-preview-empty">▶</span>;
+  if (asset.kind === 'audio') return <span className="asset-preview asset-preview-empty">♪</span>;
   if (asset.kind === 'text') return <span className="asset-preview asset-preview-text">{asset.content?.slice(0, 24) || '文'}</span>;
   return null;
 }

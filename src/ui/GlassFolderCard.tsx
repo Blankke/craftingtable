@@ -15,6 +15,10 @@ export function GlassFolderCard({ label, meta, files, onOpen }: { label: string;
   };
   const sheets: SourceFile[] = files.map(file => ({ name: file.name, meta: file.meta, art: file.image ? undefined : file.art === 'none' ? undefined : file.art, image: file.image }));
   return <div className="glass-folder-wrap" onMouseEnter={() => setExpanded(true)} onMouseLeave={() => setExpanded(false)} onFocusCapture={() => setExpanded(true)} onBlurCapture={closeOnBlur}>
-    <GlassFolder label={label} meta={meta} art={(files[0]?.art ?? 'none') as SourceArt} files={sheets} width={240} tone={mode} action="none" appear={false} open={expanded} onOpenChange={onOpen} onFileSelect={onOpen} />
+    <GlassFolder label={label} meta={meta} showLabelTitle={false} art={(files[0]?.art ?? 'none') as SourceArt} files={sheets} width={240} tone={mode} action="none" appear={false} open={expanded} onOpenChange={onOpen} onFileSelect={onOpen} />
+    {/* 项目名移出玻璃前片，放在文件夹正下方；元数据继续下移并左对齐，完全避开预览图。 */}
+    <div className="glass-folder-caption">
+      <div className="glass-folder-title" title={label}>{label}</div>
+    </div>
   </div>;
 }

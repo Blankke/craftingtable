@@ -92,6 +92,8 @@ export type GlassFolderProps = {
   menu?: FolderMenuItem[]
   /** Where the label sits on the front panel. */
   labelPlacement?: "bottom-left" | "top-left" | "top-right"
+  /** 仅显示元数据，项目标题由外层卡片放在文件夹下方。 */
+  showLabelTitle?: boolean
   open?: boolean
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
@@ -542,6 +544,7 @@ export default function GlassFolder({
   onFilesChange,
   menu = [],
   labelPlacement = "bottom-left",
+  showLabelTitle = true,
   open: openProp,
   defaultOpen = false,
   onOpenChange,
@@ -768,13 +771,17 @@ export default function GlassFolder({
                 setOpen(!open)
               }}
             />
-            <div className="gf-label">
-              <span className="gf-title">{label}</span>
+          </div>
+
+          {/* 标签置于玻璃前片之上，避免文字被前片的磨砂层一起处理。 */}
+          {(showLabelTitle || metaLine) ? (
+            <div className="gf-label gf-label--outside">
+              {showLabelTitle ? <span className="gf-title">{label}</span> : null}
               <span className="gf-meta" key={metaLine}>
                 {metaLine}
               </span>
             </div>
-          </div>
+          ) : null}
 
           {/* the contents: after the glass in tab order, beneath it on screen */}
           <div ref={filesRef} className="gf-files" role="list" aria-label={label + " contents"}>
@@ -1072,33 +1079,41 @@ canvas.gf-sheet-art[data-ready] { opacity: 1; filter: none; }
 }
 .gf-sheet-head {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  top: 11px;
+  left: 0;
+  right: 0;
+  top: 0;
   z-index: 1;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
   white-space: nowrap;
+  padding: 12px 14px 22px;
+  /* 半透明承载层：内页文字在图片与玻璃模糊下保持清晰可读。 */
+  background: linear-gradient(180deg, rgba(10, 12, 18, .62) 0%, rgba(10, 12, 18, .30) 55%, rgba(10, 12, 18, 0) 100%);
+  border-radius: 16px 16px 0 0;
 }
 .gf-sheet-name {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12.5px;
-  font-weight: 560;
+  font-weight: 640;
   letter-spacing: -.005em;
-  color: #18181b;
+  color: #fafafa;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .4);
 }
 .gf-sheet-meta {
   flex: none;
   font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   letter-spacing: .02em;
-  color: rgba(24, 24, 27, .5);
+  color: rgba(250, 250, 250, .86);
 }
-.gf-root[data-tone="dark"] .gf-sheet-name, .gf-sheet--art .gf-sheet-name { color: #fafafa; }
-.gf-root[data-tone="dark"] .gf-sheet-meta, .gf-sheet--art .gf-sheet-meta { color: rgba(250, 250, 250, .66); }
+.gf-sheet:not(.gf-sheet--art) .gf-sheet-head { background: linear-gradient(180deg, rgba(255, 255, 255, .72), rgba(255, 255, 255, 0)); }
+.gf-sheet:not(.gf-sheet--art) .gf-sheet-name { color: #18181b; text-shadow: none; }
+.gf-sheet:not(.gf-sheet--art) .gf-sheet-meta { color: rgba(24, 24, 27, .6); }
+.gf-root[data-tone="dark"] .gf-sheet:not(.gf-sheet--art) .gf-sheet-name { color: #f5f5f7; }
+.gf-root[data-tone="dark"] .gf-sheet:not(.gf-sheet--art) .gf-sheet-meta { color: rgba(245, 245, 247, .7); }
 .gf-lines {
   position: absolute;
   left: 14px;
@@ -1135,8 +1150,10 @@ canvas.gf-sheet-art[data-ready] { opacity: 1; filter: none; }
   height: 198px;
   z-index: 10;
   /* 降低雾化和白色覆层，维持玻璃质感的同时能辨认文件内容。 */
+  background: rgba(255, 255, 255, .018);
   -webkit-backdrop-filter: blur(6px) saturate(1.12);
   backdrop-filter: blur(6px) saturate(1.12);
+  will-change: transform, backdrop-filter;
   transform: translateY(var(--gf-front-slide));
   transition: transform .72s var(--gf-slide), opacity .72s var(--gf-ease);
 }
@@ -1151,11 +1168,12 @@ canvas.gf-sheet-art[data-ready] { opacity: 1; filter: none; }
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, .06) 0%, rgba(255, 255, 255, .12) 42%, rgba(252, 252, 252, .30) 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, .025) 0%, rgba(255, 255, 255, .055) 42%, rgba(252, 252, 252, .14) 100%);
 }
 .gf-root[data-tone="dark"] .gf-tint {
-  background: linear-gradient(180deg, rgba(18, 18, 20, .10) 0%, rgba(14, 14, 16, .30) 46%, rgba(8, 8, 10, .55) 100%);
+  background: linear-gradient(180deg, rgba(18, 18, 20, .06) 0%, rgba(14, 14, 16, .16) 46%, rgba(8, 8, 10, .32) 100%);
 }
+.gf-root[data-tone="dark"] .gf-front { background: rgba(18, 18, 20, .035); }
 .gf-spec {
   position: absolute;
   inset: 0;
@@ -1177,7 +1195,8 @@ canvas.gf-sheet-art[data-ready] { opacity: 1; filter: none; }
   z-index: 1;
   cursor: pointer;
 }
-.gf-hit:focus-visible ~ .gf-label .gf-title { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+.gf-front:has(.gf-hit:focus-visible) + .gf-label .gf-title { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+.gf-hit:hover, .gf-hit:focus-visible { background: transparent; border-color: transparent; }
 .gf-front:has(.gf-hit:focus-visible) .gf-front-rim path { stroke-width: 5; }
 
 .gf-label {
@@ -1190,7 +1209,22 @@ canvas.gf-sheet-art[data-ready] { opacity: 1; filter: none; }
   pointer-events: none;
   color: var(--gf-ink);
 }
+.gf-label--outside {
+  z-index: 11;
+  transform: translateY(var(--gf-front-slide));
+}
 .gf-root[data-place="bottom-left"] .gf-label { left: 28px; bottom: 32px; }
+.gf-root[data-place="bottom-left"] .gf-label--outside { bottom: 4px; }
+.gf-label--outside .gf-meta {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--gf-ink);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, .45);
+  animation: none;
+}
+.gf-root[data-tone="dark"] .gf-label--outside .gf-meta { text-shadow: 0 1px 2px rgba(0, 0, 0, .45); }
 .gf-root[data-place="top-left"] .gf-label { left: 28px; top: 34px; }
 .gf-root[data-place="top-right"] .gf-label { right: 32px; top: 52px; align-items: flex-start; }
 .gf-title {

@@ -1,11 +1,13 @@
-// 用法：<ObjectInspector editor={editor} objects={selection}/>；样式预设、颜色库与文本/排列均通过命令写入，支持撤销。
+// 用法：<ObjectInspector editor={editor} objects={selection} assets={document.assets}/>；样式预设、颜色库与文本/排列均通过命令写入，支持撤销。
+// 颜色不再单独成页签，而是以统一弹层嵌入填充、渐变、线条、媒体轨道与文本各自的颜色入口；图片提供「还原比例」恢复自然比例。
 import { useState } from 'react';
 import type { Arrangement, Editor } from '../core/editor';
-import type { CanvasObject } from '../core/document';
-import { resizeObject, styleOf } from '../core/appearance';
+import type { CanvasObject, ProjectDocument } from '../core/document';
+import { resizeObject, restoredImageRatio, styleOf } from '../core/appearance';
 import { stylePresetsFor } from '../core/elementStyles';
 import { TextToolbar } from './TextToolbar';
-import { ColorEditor } from './ColorEditor';
+import { ColorTrigger } from './ColorEditor';
+import { mediaSource } from './mediaSource';
 import { useLanguage } from './language';
 
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min?: number; max?: number; onChange(value: number): void }) {
@@ -22,7 +24,7 @@ function PresetCard({ label, style }: { label: string; style: NonNullable<Canvas
   </svg><em>{label}</em></span>;
 }
 
-export function ObjectInspector({ editor, objects }: { editor: Editor; objects: CanvasObject[] }) {
+export function ObjectInspector({ editor, objects, assets }: { editor: Editor; objects: CanvasObject[]; assets: ProjectDocument['assets'] }) {
   const { t } = useLanguage();
   const [tab, setTab] = useState('样式');
   const object = objects[0];
@@ -47,18 +49,33 @@ export function ObjectInspector({ editor, objects }: { editor: Editor; objects: 
   };
   const applyStroke = (color: string) => updateStyle({ stroke: color, strokeEnabled: true });
   const restoreAuto = () => update(target => { if (target.kind === 'media') { delete target.color; target.autoColor = true; } });
+  // 还原图片自然比例：读取素材尺寸；存在裁剪时按可见裁剪区域比例，保持高度不变重算宽度并重新启用锁定。
+  const restoreAspect = async () => {
+    if (object.kind !== 'image') return;
+    const asset = assets.find(item => item.id === object.assetId);
+    if (!asset) return;
+    try {
+      const image = new Image(); image.src = mediaSource(asset.path); await image.decode();
+      const cropRegion = object.kind === 'image' ? object.crop : undefined;
+      const ratio = restoredImageRatio(cropRegion, image.naturalWidth, image.naturalHeight);
+      update(target => { if (target.kind === 'image') { target.width = target.height * ratio; target.aspectLocked = true; } });
+    } catch (error) {
+      alert(`${t('素材无法解码，已保留当前尺寸', 'Could not decode the asset; kept current size')}：${String(error)}`);
+    }
+  };
   const presets = stylePresetsFor(object.kind);
   const arrange = (operation: Arrangement) => editor.arrangeObjects(objects.map(item => item.id), operation);
   return <div className="object-inspector">
-    <div className="inspector-tabs" role="tablist">{['样式', '颜色', '文本', '排列'].map(item => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}</button>)}</div>
+    <div className="inspector-tabs" role="tablist">{['样式', '文本', '排列'].map(item => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}</button>)}</div>
     {tab === '样式' && <>
       <div className="preset-grid">{presets.map(preset => <button key={preset.id} className="preset-card" aria-label={preset.label} onClick={() => updateStyle(preset.style)}><PresetCard label={preset.label} style={{ ...style, ...preset.style }} /></button>)}</div>
+      {object.kind === 'media' && <fieldset><legend>{t('轨道颜色', 'Track color')}</legend><div className="inspector-color-row"><ColorTrigger label={t('轨道颜色', 'Track color')} value={object.color ?? '#8888ff'} onChange={applyFill} /><button onClick={restoreAuto}>{t('恢复自动配色', 'Restore auto')}</button></div></fieldset>}
       {object.kind !== 'image' && object.kind !== 'media' && <fieldset><legend>{t('填充', 'Fill')}</legend>
-        <label><span><input type="checkbox" checked={style.fillEnabled} onChange={e => updateStyle({ fillEnabled: e.target.checked })} />{t('启用填充', 'Fill on')}</span><input aria-label={t('填充颜色', 'Fill color')} type="color" value={style.fill} onChange={e => updateStyle({ fill: e.target.value })} /></label>
-        <label><span><input type="checkbox" checked={style.gradient} onChange={e => updateStyle({ gradient: e.target.checked })} />{t('渐变', 'Gradient')}</span><input aria-label={t('渐变颜色', 'Gradient color')} type="color" value={style.gradientColor} onChange={e => updateStyle({ gradientColor: e.target.value })} /></label>
+        <label><span><input type="checkbox" checked={style.fillEnabled} onChange={e => updateStyle({ fillEnabled: e.target.checked })} />{t('启用填充', 'Fill on')}</span><ColorTrigger label={t('填充颜色', 'Fill color')} value={style.fill} onChange={applyFill} /></label>
+        <label><span><input type="checkbox" checked={style.gradient} onChange={e => updateStyle({ gradient: e.target.checked })} />{t('渐变', 'Gradient')}</span><ColorTrigger label={t('渐变颜色', 'Gradient color')} value={style.gradientColor} onChange={color => updateStyle({ gradientColor: color })} /></label>
         {style.gradient && <label>{t('渐变方向', 'Direction')}<select value={style.gradientDirection} onChange={e => updateStyle({ gradientDirection: e.target.value as 'vertical' | 'horizontal' })}><option value="vertical">{t('上下', 'Vertical')}</option><option value="horizontal">{t('左右', 'Horizontal')}</option></select></label>}
       </fieldset>}
-      <fieldset><legend>{t('线条', 'Stroke')}</legend><label><span><input type="checkbox" checked={style.strokeEnabled} onChange={e => updateStyle({ strokeEnabled: e.target.checked })} />{t('启用线条', 'Stroke on')}</span><input aria-label={t('线条颜色', 'Stroke color')} type="color" value={style.stroke} onChange={e => updateStyle({ stroke: e.target.value })} /></label>
+      <fieldset><legend>{t('线条', 'Stroke')}</legend><label><span><input type="checkbox" checked={style.strokeEnabled} onChange={e => updateStyle({ strokeEnabled: e.target.checked })} />{t('启用线条', 'Stroke on')}</span><ColorTrigger label={t('线条颜色', 'Stroke color')} value={style.stroke} onChange={applyStroke} /></label>
         <label>{t('线型', 'Line style')}<select aria-label={t('线型', 'Line style')} value={style.dash} onChange={e => updateStyle({ dash: e.target.value as typeof style.dash })}><option value="solid">{t('实线', 'Solid')}</option><option value="dashed">{t('虚线', 'Dashed')}</option><option value="dotted">{t('点线', 'Dotted')}</option></select></label>
         <NumberField label={t('线宽', 'Width')} value={style.strokeWidth} min={0} max={40} onChange={strokeWidth => updateStyle({ strokeWidth })} />
         <NumberField label={t('周长间距', 'Perimeter gap')} value={style.perimeter} min={0} max={100} onChange={perimeter => updateStyle({ perimeter })} />
@@ -66,7 +83,6 @@ export function ObjectInspector({ editor, objects }: { editor: Editor; objects: 
       <NumberField label={t('不透明度（%）', 'Opacity (%)')} value={style.opacity * 100} min={0} max={100} onChange={value => updateStyle({ opacity: value / 100 })} />
       <button onClick={resetStyle}>{t('恢复默认样式', 'Restore default style')}</button>
     </>}
-    {tab === '颜色' && <ColorEditor fill={object.kind === 'media' ? object.color : style.fill} stroke={style.stroke} onPickFill={applyFill} onPickStroke={applyStroke} onRestoreAuto={object.kind === 'media' ? restoreAuto : undefined} />}
     {tab === '文本' && (('text' in object || 'fill' in object) ? <>
       <label>{t('内容', 'Content')}<textarea aria-label={t('对象文字', 'Object text')} value={object.text ?? ''} onChange={e => update(target => { if ('text' in target || 'fill' in target) target.text = e.target.value; })} /></label>
       <TextToolbar editor={editor} object={object} />
@@ -79,7 +95,7 @@ export function ObjectInspector({ editor, objects }: { editor: Editor; objects: 
       <NumberField label="Y" value={object.y} onChange={y => editor.moveObjects(objects.map(o => o.id), 0, y - object.y)} />
       <NumberField label={t('旋转（°）', 'Rotation (°)')} value={object.rotation ?? 0} min={-360} max={360} onChange={rotation => update(target => { target.rotation = rotation || undefined; })} />
       {object.kind !== 'media' && <><NumberField label={t('宽度', 'Width')} value={object.width} min={12} onChange={width => update(target => resizeObject(target, width, target.height))} /><NumberField label={t('高度', 'Height')} value={object.height} min={12} onChange={height => update(target => resizeObject(target, target.width, height, 'height'))} /></>}
-      {object.kind === 'image' && <><label><span><input aria-label={t('锁定比例', 'Lock aspect')} type="checkbox" checked={object.aspectLocked !== false} onChange={e => update(target => { if (target.kind === 'image') target.aspectLocked = e.target.checked; })} />{t('锁定比例', 'Lock aspect')}</span></label><fieldset><legend>{t('裁剪（原图百分比）', 'Crop (%)')}</legend>{!object.crop && <button onClick={() => update(target => { if (target.kind === 'image') target.crop = { x: .05, y: .05, width: .9, height: .9 }; })}>{t('开始裁剪', 'Start crop')}</button>}{(['x', 'y', 'width', 'height'] as const).map((field, index) => <NumberField key={field} label={[t('裁剪左侧', 'Crop left'), t('裁剪顶部', 'Crop top'), t('裁剪宽度', 'Crop width'), t('裁剪高度', 'Crop height')][index]} value={crop![field] * 100} min={field === 'x' || field === 'y' ? 0 : 1} max={field === 'x' || field === 'y' ? 99 : 100} onChange={value => cropField(field, value)} />)}<button onClick={() => update(target => { if (target.kind === 'image') { if (target.aspectLocked !== false && target.crop) target.height *= target.crop.width / target.crop.height; delete target.crop; } })}>{t('恢复原图', 'Restore original')}</button></fieldset></>}
+      {object.kind === 'image' && <><label><span><input aria-label={t('锁定比例', 'Lock aspect')} type="checkbox" checked={object.aspectLocked !== false} onChange={e => update(target => { if (target.kind === 'image') target.aspectLocked = e.target.checked; })} />{t('锁定比例', 'Lock aspect')}</span><button onClick={() => void restoreAspect()}>{t('还原比例', 'Restore aspect')}</button></label><fieldset><legend>{t('裁剪（原图百分比）', 'Crop (%)')}</legend>{!object.crop && <button onClick={() => update(target => { if (target.kind === 'image') target.crop = { x: .05, y: .05, width: .9, height: .9 }; })}>{t('开始裁剪', 'Start crop')}</button>}{(['x', 'y', 'width', 'height'] as const).map((field, index) => <NumberField key={field} label={[t('裁剪左侧', 'Crop left'), t('裁剪顶部', 'Crop top'), t('裁剪宽度', 'Crop width'), t('裁剪高度', 'Crop height')][index]} value={crop![field] * 100} min={field === 'x' || field === 'y' ? 0 : 1} max={field === 'x' || field === 'y' ? 99 : 100} onChange={value => cropField(field, value)} />)}<button onClick={() => update(target => { if (target.kind === 'image') { if (target.aspectLocked !== false && target.crop) target.height *= target.crop.width / target.crop.height; delete target.crop; } })}>{t('恢复原图', 'Restore original')}</button></fieldset></>}
       {objects.length > 1 && <fieldset><legend>{t('对齐与分布', 'Align & distribute')}</legend><div className="tool-grid">{([['left', '左对齐'], ['center-x', '水平居中'], ['right', '右对齐'], ['top', '顶对齐'], ['middle-y', '垂直居中'], ['bottom', '底对齐'], ['distribute-x', '水平分布'], ['distribute-y', '垂直分布']] as const).map(([operation, label]) => <button key={operation} onClick={() => arrange(operation)}>{t(label, operation)}</button>)}</div></fieldset>}
       <div className="tool-grid"><button onClick={() => editor.execute(draft => { const chosen = draft.objects.filter(o => objects.some(item => item.id === o.id)); draft.objects = [...draft.objects.filter(o => !chosen.includes(o)), ...chosen]; })}>{t('置于顶层', 'Bring to front')}</button><button onClick={() => editor.execute(draft => { const chosen = draft.objects.filter(o => objects.some(item => item.id === o.id)); draft.objects = [...chosen, ...draft.objects.filter(o => !chosen.includes(o))]; })}>{t('置于底层', 'Send to back')}</button>
       {objects.length > 1 && <button onClick={() => editor.group(objects.map(o => o.id))}>{t('分组', 'Group')}</button>}{object.groupId && <button onClick={() => editor.ungroup(object.groupId!)}>{t('解组', 'Ungroup')}</button>}</div>
