@@ -94,6 +94,8 @@ export type GlassFolderProps = {
   labelPlacement?: "bottom-left" | "top-left" | "top-right"
   /** 仅显示元数据，项目标题由外层卡片放在文件夹下方。 */
   showLabelTitle?: boolean
+  /** 外层卡片接管标题与元数据时，隐藏玻璃组件的自动数量标签。 */
+  showLabelMeta?: boolean
   open?: boolean
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
@@ -545,6 +547,7 @@ export default function GlassFolder({
   menu = [],
   labelPlacement = "bottom-left",
   showLabelTitle = true,
+  showLabelMeta = true,
   open: openProp,
   defaultOpen = false,
   onOpenChange,
@@ -712,7 +715,7 @@ export default function GlassFolder({
   const start = Math.max(0, files.length - MAX_VISIBLE)
   const visible = files.slice(start)
   const count = files.length
-  const metaLine = meta ?? count + (count === 1 ? " item" : " items")
+  const metaLine = showLabelMeta ? meta ?? count + (count === 1 ? " item" : " items") : null
 
   return (
     <div

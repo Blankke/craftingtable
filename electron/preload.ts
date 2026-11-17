@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('workbench', {
   createProject: (name: string) => ipcRenderer.invoke('projects:create', name),
   openProject: (folder: string) => ipcRenderer.invoke('projects:open', folder),
   pickProjectFolder: () => ipcRenderer.invoke('projects:pick-folder'),
+  revealProject: (folder: string) => ipcRenderer.invoke('projects:reveal', folder),
+  deleteProject: (folder: string) => ipcRenderer.invoke('projects:delete', folder),
   saveProject: (document: unknown) => ipcRenderer.invoke('projects:save', document),
   leaveProject: () => ipcRenderer.invoke('projects:leave'),
   importAssets: () => ipcRenderer.invoke('assets:import'),

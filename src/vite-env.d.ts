@@ -9,6 +9,8 @@ declare global {
       createProject(name: string): Promise<string>;
       openProject(folder: string): Promise<ProjectDocument & { recovered?: boolean }>;
       pickProjectFolder(): Promise<{ folder: string; document: ProjectDocument & { recovered?: boolean } } | null>;
+      revealProject(folder: string): Promise<void>;
+      deleteProject(folder: string): Promise<boolean>;
       saveProject(document: ProjectDocument): Promise<{ revision: number }>;
       leaveProject(): Promise<void>;
       importAssets(): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;

@@ -34,8 +34,17 @@ export function SplashScreen() {
     const remove = setTimeout(() => dismiss(), delay + duration + 450);
     return () => { cancelAnimationFrame(raf); clearTimeout(fade); clearTimeout(remove); };
   }, [visible, dismiss]);
+  // 开屏不拦截首页的首次操作：捕获阶段结束动画，事件仍可落到用户实际点击的按钮。
+  useEffect(() => {
+    if (!visible) return;
+    const skip = () => dismiss();
+    const skipByKeyboard = (event: KeyboardEvent) => { if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') skip(); };
+    addEventListener('pointerdown', skip, { capture: true, once: true });
+    addEventListener('keydown', skipByKeyboard, { capture: true });
+    return () => { removeEventListener('pointerdown', skip, true); removeEventListener('keydown', skipByKeyboard, true); };
+  }, [visible, dismiss]);
   if (!visible) return null;
-  return <div className={`splash${fading ? ' splash-fade' : ''}`} aria-hidden={fading}>
+  return <div className={`splash${fading ? ' splash-fade' : ''}`} aria-hidden="true">
     <svg className="splash-svg" width="320" height="160" viewBox={helloViewBox} role="presentation">
       <path ref={pathRef} className="splash-title" d={helloPath} fill="none" stroke="#f43f5e" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>

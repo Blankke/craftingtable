@@ -16,6 +16,9 @@ test('开屏 Hello World、笔记/画布来回切换与分栏', async () => {
     const page = await app.firstWindow();
     // 开屏以本地 Indie Flower 72px 路径描绘 Hello World。
     await expect(page.locator('.splash path')).toBeVisible();
+    // 开屏覆盖层可由一次点击立即跳过，后续进入项目不应再出现。
+    await page.mouse.click(12, 12);
+    await expect(page.locator('.splash')).toHaveCount(0);
     await page.locator('.plus').click();
     await page.getByRole('button', { name: '新建项目' }).click();
     await page.getByLabel('项目名称').fill('模式验收');
@@ -26,7 +29,7 @@ test('开屏 Hello World、笔记/画布来回切换与分栏', async () => {
     const canvasButton = page.locator('.mode-switch-btn').filter({ hasText: '画布' });
     const notesButton = page.locator('.mode-switch-btn').filter({ hasText: '笔记' });
     await expect(canvasButton).toHaveAttribute('aria-pressed', 'true');
-    // 首次进入笔记自动创建一篇，小球随模式平移。
+    // 首次进入笔记自动创建一篇，选中层与小球停在笔记项两端。
     await notesButton.click();
     await expect(notesButton).toHaveAttribute('aria-pressed', 'true');
     await expect(canvasButton).toHaveAttribute('aria-pressed', 'false');
@@ -34,22 +37,34 @@ test('开屏 Hello World、笔记/画布来回切换与分栏', async () => {
     const ball = page.locator('.mode-switch-ball');
     const thumb = page.locator('.mode-switch-thumb');
     const face = page.locator('.mode-switch-ball-face');
-    await expect.poll(() => ball.getAttribute('style')).toContain('translateX(0px)');
-    await expect.poll(() => thumb.getAttribute('style')).toContain('translateX(0px)');
+    await expect(page.locator('.mode-switch')).toHaveClass(/is-notes/);
+    await expect.poll(async () => {
+      const ballBox = await ball.boundingBox();
+      const thumbBox = await thumb.boundingBox();
+      return ballBox && thumbBox ? Math.round(thumbBox.x + thumbBox.width - ballBox.x - ballBox.width) : null;
+    }).toBe(5);
     await expect(face).toHaveAttribute('style', /rotate\(-360deg\)/);
     // 来回切换两次，两端 aria-pressed 与小球位置正确，笔记内容恢复且不重现开屏。
     for (let round = 0; round < 2; round++) {
       await canvasButton.click();
       await expect(canvasButton).toHaveAttribute('aria-pressed', 'true');
       await expect(page.locator('.canvas')).toBeVisible();
-      await expect.poll(() => ball.getAttribute('style')).toContain('translateX(28px)');
-      await expect.poll(() => thumb.getAttribute('style')).toContain('translateX(76px)');
+      await expect(page.locator('.mode-switch')).toHaveClass(/is-canvas/);
+      await expect.poll(async () => {
+        const ballBox = await ball.boundingBox();
+        const thumbBox = await thumb.boundingBox();
+        return ballBox && thumbBox ? Math.round(ballBox.x - thumbBox.x) : null;
+      }).toBeGreaterThanOrEqual(4);
       await expect(face).toHaveAttribute('style', /rotate\(0deg\)/);
       await notesButton.click();
       await expect(notesButton).toHaveAttribute('aria-pressed', 'true');
       await expect(page.locator('.note-tiptap .ProseMirror')).toBeVisible();
-      await expect.poll(() => ball.getAttribute('style')).toContain('translateX(0px)');
-      await expect.poll(() => thumb.getAttribute('style')).toContain('translateX(0px)');
+      await expect(page.locator('.mode-switch')).toHaveClass(/is-notes/);
+      await expect.poll(async () => {
+        const ballBox = await ball.boundingBox();
+        const thumbBox = await thumb.boundingBox();
+        return ballBox && thumbBox ? Math.round(thumbBox.x + thumbBox.width - ballBox.x - ballBox.width) : null;
+      }).toBe(5);
       await expect(face).toHaveAttribute('style', /rotate\(-360deg\)/);
     }
     await expect(page.locator('.splash')).toHaveCount(0);
@@ -58,6 +73,14 @@ test('开屏 Hello World、笔记/画布来回切换与分栏', async () => {
     await expect(page.locator('.dock-divider').first()).toBeVisible();
     await page.locator('.dock-divider').first().focus();
     await page.keyboard.press('ArrowUp');
+    // 首页项目卡片右下角的菜单提供常用项目操作，打开项目可回到原工作台。
+    await page.locator('header button').first().click();
+    await expect(page.locator('.home')).toBeVisible();
+    await page.locator('.glass-folder-more').click();
+    await expect(page.locator('.glass-folder-menu')).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: '在资源管理器中显示' })).toBeVisible();
+    await page.getByRole('menuitem', { name: '打开项目' }).click();
+    await expect(page.locator('.canvas')).toBeVisible();
   } finally {
     await app?.close().catch(() => undefined);
   }

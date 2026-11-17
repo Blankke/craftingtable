@@ -47,6 +47,14 @@ test('笔记输入、浮动菜单批注、图片与标签恢复', async () => {
     await page.keyboard.press('Enter');
     await page.keyboard.type('# 标题段落');
     await expect(body.locator('h1')).toHaveText('标题段落');
+    // 分屏预览复用同一份结构化 Markdown 文档，批注栏可按需要收起。
+    await page.getByRole('button', { name: '分屏预览' }).click();
+    await expect(page.locator('.note-markdown-preview')).toBeVisible();
+    await expect(page.locator('.note-markdown-preview h1')).toHaveText('标题段落');
+    await page.getByRole('button', { name: '收起批注' }).click();
+    await expect(page.locator('.note-annotations')).toHaveCount(0);
+    await page.screenshot({ path: 'test-results/notes-layout.png' });
+    await page.getByRole('button', { name: '打开批注' }).click();
     // 选中全文后浮动菜单出现，可新增批注与统一划线。
     await body.press('Control+A');
     await page.locator('.note-bubble-menu button').filter({ hasText: '批注' }).click();

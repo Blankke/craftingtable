@@ -79,7 +79,7 @@ export function App() {
   const retryAnalysis = useTaskStore(state => state.retry);
   const canvasRef = useRef<HTMLElement | null>(null);
   const activeEditor = useRef(editor); activeEditor.current = editor;
-  const [dropPreview, setDropPreview] = useState<{ x: number; y: number; label: string; image?: string } | null>(null);
+  const [dropPreview, setDropPreview] = useState<{ x: number; y: number; label: string; image?: string; shape?: typeof shapeKinds[number] } | null>(null);
   const placement = useRef<{ kind: Tool | 'media' | 'image' | 'note'; assetId?: string; x: number; y: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
   const cancelledDrop = useRef(false);
@@ -274,7 +274,7 @@ export function App() {
       if (!item.moved) return;
       const asset = editor.document.assets.find(a => a.id === item.assetId);
       const note = item.kind === 'note' ? editor.document.notes.find(value => value.id === item.assetId) : null;
-      setDropPreview({ x: event.clientX, y: event.clientY, label: note?.name ?? asset?.name ?? (item.kind in shapeLabels ? shapeLabels[item.kind as keyof typeof shapeLabels] : '文字'), image: asset?.kind === 'image' ? mediaSource(asset.path) : undefined });
+      setDropPreview({ x: event.clientX, y: event.clientY, label: note?.name ?? asset?.name ?? (item.kind in shapeLabels ? shapeLabels[item.kind as keyof typeof shapeLabels] : '文字'), image: asset?.kind === 'image' ? mediaSource(asset.path) : undefined, shape: shapeKinds.includes(item.kind as typeof shapeKinds[number]) ? item.kind as typeof shapeKinds[number] : undefined });
     };
     const cancel = () => { if (placement.current) suppressClick.current = true; placement.current = null; cancelledDrop.current = true; setDropPreview(null); };
     const down = (event: MouseEvent) => { if (event.button === 2) cancel(); };
@@ -374,7 +374,10 @@ export function App() {
         if (project.summary.assets) files.push({ name: t('素材', 'Assets'), meta: `${project.summary.assets} ${t('项素材', 'assets')}`, art: 'none', image: project.preview.media });
         if (project.summary.notes) files.push({ name: t('笔记', 'Notes'), meta: `${project.summary.notes} ${t('篇笔记', 'notes')}`, art: 'none', image: project.preview.note });
         const meta = project.status === 'invalid' ? t('项目文件无效', 'Invalid project') : files.length ? `${files.length} ${t('类内容', 'sections')}` : t('空项目', 'Empty project');
-        return <GlassFolderCard key={`${project.folder}:${project.revision ?? 'invalid'}`} label={name} meta={meta} files={files} onOpen={() => openProject(project.folder)} />;
+        return <GlassFolderCard key={`${project.folder}:${project.revision ?? 'invalid'}`} label={name} meta={meta} files={files} onOpen={() => openProject(project.folder)} onReveal={() => { void api.revealProject(project.folder).catch(error => setHomeError(String(error))); }} onDelete={() => {
+          if (!confirm(`确定删除项目“${name}”吗？此操作会删除项目目录及其中的素材，且无法恢复。`)) return;
+          void api.deleteProject(project.folder).then(async () => setProjects(await api.listProjects())).catch(error => setHomeError(String(error)));
+        }} />;
       })}
       <div className="home-create"><button className="project-card plus" aria-label={t('添加项目', 'Add project')} onClick={() => setHomeMenu(value => !value)}>+</button>
         {homeMenu && <div className="home-menu"><button onClick={() => { setHomeMenu(false); setCreating(true); setHomeError(''); }}>{t('新建项目', 'New project')}</button><button onClick={pickProjectFolder}>{t('打开项目文件夹', 'Open project folder')}</button></div>}
@@ -389,11 +392,11 @@ export function App() {
     </form></div>}
     {themeModal}
   </main>;
-  return <div className="app" onContextMenu={event => event.preventDefault()} onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}><header>
+  return <div className="app" onContextMenu={event => event.preventDefault()} onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}><header className="workspace-header">
     <button onClick={async () => { try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); setProjects(await api.listProjects()); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button>
-    <strong>{document.name}</strong><span>{saveState === '已保存' ? t('已保存', 'Saved') : saveState === '未保存' ? t('未保存', 'Unsaved') : saveState === '保存失败' ? t('保存失败', 'Save failed') : t('已载入恢复快照，请保存', 'Recovery loaded; please save')}</span>
+    <strong>{document.name}</strong><div className="workspace-header-center"><WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /><span>{saveState === '已保存' ? t('已保存', 'Saved') : saveState === '未保存' ? t('未保存', 'Unsaved') : saveState === '保存失败' ? t('保存失败', 'Save failed') : t('已载入恢复快照，请保存', 'Recovery loaded; please save')}</span></div>
     {saveState === '保存失败' && <button onClick={() => { void autosave.current?.flush().catch(() => undefined); }}>{t('重试保存', 'Retry save')}</button>}
-    <WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /><button onClick={() => editor.undo()}>{t('撤销', 'Undo')}</button><button onClick={() => editor.redo()}>{t('重做', 'Redo')}</button>{themeButton}{settings}
+    <button onClick={() => editor.undo()}>{t('撤销', 'Undo')}</button><button onClick={() => editor.redo()}>{t('重做', 'Redo')}</button>{themeButton}{settings}
   </header>{mode === 'notes' && currentNote ? <div className="note-view"><div className="note-tabs">
     {openNoteIds.map(id => document.notes.find(note => note.id === id)).filter((note): note is ProjectDocument['notes'][number] => !!note).map(n => <div key={n.id} className={`note-tab${n.id === noteId ? ' active' : ''}`}><button onClick={() => setNoteId(n.id)}>{n.name || t('未命名', 'Untitled')}</button><button aria-label={t('关闭标签', 'Close tab')} onClick={() => closeNote(n.id)}>×</button></div>)}
     <button onClick={createNote}>＋ {t('笔记', 'Note')}</button>
@@ -412,5 +415,5 @@ export function App() {
   </div>{tool === 'arrow' && <label className="arrow-routing">路径<select aria-label="箭头路径" value={arrowRouting} onChange={event => setArrowRouting(event.target.value as 'straight' | 'elbow')}><option value="straight">直线</option><option value="elbow">折线</option></select></label>}</>}
   library={<><button onClick={importAssets}>+ 导入素材</button><TextAssetCreator onCreate={createTextAsset}/><MediaTaskList document={document} analysis={analysis} onCancel={taskId => { void api.cancelTask(taskId); }} onRetry={retryAnalysis}/><AssetLibrary assets={document.assets} notes={document.notes} referencedIds={referencedIds} processingAssetIds={processingAssetIds} failedAssetIds={failedAssetIds} onPlace={beginPlacement} onAdd={addObject} onRelink={relinkAsset} onRemove={id => editor.removeAsset(id)} onOpenNote={openNote} onAddNote={id => { void addObject('note', id); }} onPlaceNote={(event, id) => beginPlacement(event, 'note', id)} onDuplicateNote={id => openNote(editor.duplicateNote(id))} onRemoveNote={id => { editor.deleteNote(id); closeNote(id); }}/></>}
   inspector={mergedInspector} autoOpenProperties={!!selectedMedia}/>
-  </div>}{dropPreview && <div className="drop-ghost" style={{ left: dropPreview.x + 12, top: dropPreview.y + 12 }}>{dropPreview.image && <img src={dropPreview.image} alt=""/>}<span>{dropPreview.label}</span></div>}{themeModal}</div>;
+  </div>}{dropPreview && <div className={`drop-ghost${dropPreview.shape ? ' drop-ghost-shape' : ''}`} style={{ left: dropPreview.x + 12, top: dropPreview.y + 12 }}>{dropPreview.image && <img src={dropPreview.image} alt=""/>}{dropPreview.shape ? <ShapeIcon kind={dropPreview.shape}/> : <span>{dropPreview.label}</span>}</div>}{themeModal}</div>;
 }

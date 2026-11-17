@@ -1,5 +1,9 @@
 # 仓库协作入口
 
+## 项目 UI 设计工作流
+
+项目 UI 工作流入口见 [agent/ui-design-workflow.md](agent/ui-design-workflow.md)，视觉方向见 [agent/ui-art-direction.md](agent/ui-art-direction.md)。
+
 本仓库的完整项目守则见 [agent/project-rules.md](agent/project-rules.md)。开始工作前先阅读该文件，再阅读 `agent/architecture.md`、`agent/change-log.md`，并检查 `git status` 与最近提交。用户在会话中给出的指令优先于仓库守则。
 
 ## 视觉任务验收

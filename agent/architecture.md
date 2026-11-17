@@ -12,7 +12,7 @@
 
 - `src/core/`：项目文档模型、校验、编辑命令、自动保存和时间刻度；文档是编辑器的单一事实来源。
 - `src/ui/`：React 界面、画布、素材库、播放控件、任务状态、语言与设置面板。
-- `src/ui/WorkspaceDock.tsx`、`src/ui/dockLayout.ts`：图标视图栏、侧栏宽度拖拽与受控网格分栏；可见面板之间插入水平分隔线，拖动只调整相邻两块，侧栏宽度与三块面板高度写入本机 localStorage 并统一归一化。画布通过 ResizeObserver 跟随可用空间。
+- `src/ui/WorkspaceDock.tsx`、`src/ui/dockLayout.ts`：图标视图栏、侧栏宽度拖拽与受控网格分栏；可见面板之间插入水平分隔线，拖动只调整相邻两块，侧栏宽度与三块面板高度写入用户 localStorage 并统一归一化。画布通过 ResizeObserver 跟随可用空间。
 - `src/ui/WorkspaceModeSwitch.tsx`：受控的笔记/画布模式切换器，固定尺寸的灰色选区与笑脸小球；`App` 显式持有模式，不再用 `noteId` 隐式判断。
 - `src/core/appearance.ts`、`src/core/shapeGeometry.ts`、`src/ui/ObjectAppearance.tsx`、`src/ui/ObjectInspector.tsx`：统一处理图形样式、文字、尺寸及图片裁剪；`shapeGeometry.ts` 是固定图库的单一几何来源，画布、工具图标和首页预览均复用它。
 - `src/core/waveform.ts`：单声道 PCM 峰值聚合、带版本头的二进制缓存编解码与按像素重采样，后台 worker 与渲染端共用；删除固定 PNG 波形方案。
@@ -31,8 +31,10 @@
 - 首页列表只读项目文档，按修订缓存由实际对象生成的 SVG 预览和 FFmpeg 媒体缩略图；画布预览复现项目保存的最后相机视口，列出项目不切换活动项目。音频波形缓存为带版本头的单声道 PCM 峰值二进制文件，画布按裁剪区间与 pixelsPerSecond 重采样到像素列并以单条 Konva Shape 绘制 1px 峰值线，改色与时间缩放不重新分析素材。
 - `scripts/`：桌面构建、媒体工具准备、免安装开发入口与受限范围内的测试产物清理。`dev-desktop.mjs` 在 Windows 下先切换 UTF-8 控制台，再打印 Vite 和 Electron 启动进度并保留子进程日志供排查；`preview-home.mjs` 使用独立临时项目和固定真实图片截取 Hello、文件夹静止与展开状态，供视觉闭环验收。所有脚本可从仓库根目录执行。
 - `tests/e2e/` 与 `tests/fixtures/`：端到端用例和固定的小样本素材。测试项目使用独立临时目录，不写入正式用户项目。
-- `vendor/`：FFmpeg 授权信息及本机准备的可执行文件。可执行文件不进 Git，打包前由 `prepare:media` 校验和准备。
+- `vendor/`：FFmpeg 授权信息及按需准备的可执行文件。可执行文件不进 Git，打包前由 `prepare:media` 校验和准备。
 - `agent/`：本文件、变更记录、完整项目守则 `project-rules.md` 与视觉验收方法 `visual-verification.md`；根目录 `AGENTS.md` 保留入口及 Electron 复测硬性规则。`dist/`、`dist-electron/`、`release/`、`test-results/` 是生成物或临时目录，不是源码；其中 `release/` 仅在取得稳定发布确认后生成。
+
+协作资料按用途分层：`agent/` 保存项目自写约束、美术方向、技能职责与安装路径说明；外来 skill 安装在 Codex 用户级技能目录，WSL 等环境可通过符号链接复用；`docs/` 预留给人类用户的手册。技能读取路径与职责见 `agent/ui-design-workflow.md`。
 
 ## 数据边界
 

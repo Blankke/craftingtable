@@ -145,8 +145,8 @@ function ObjectView({ object, assetPath, assetName, assetKind, analysis, markers
       {markers.filter(marker => marker.timeUs >= object.inUs && marker.timeUs <= object.outUs).map(marker => { const x = (marker.timeUs - object.inUs) / 1_000_000 * object.pixelsPerSecond; return <Group key={marker.id} name={`marker:${marker.id}`} x={x}
         onClick={event => { event.cancelBubble = true; if (selected && event.evt.button === 0) { setSelectedMarker(marker.id); onSeek(marker.timeUs, false); } }}
         onDblClick={event => { event.cancelBubble = true; if (selected) onSeek(marker.timeUs, true); }}>
-        <Line points={[0, 24, 0, object.height - 20]} stroke="#e08a27" strokeWidth={2}/><Circle y={24} radius={selectedMarker === marker.id && selected ? 9 : 7} fill={selectedMarker === marker.id && selected ? accent : '#e08a27'} stroke="#fff" strokeWidth={2}/>
-        {selected && selectedMarker === marker.id && <><Line points={[0, 16, 0, -12]} stroke={accent} listening={false}/><Circle name={`note:${marker.id}`} y={-16} radius={8} fill={accent}/><Text x={12} y={-22} text="拖出笔记" fontSize={11} fill={accent} listening={false}/></>}
+        <Line points={[0, 24, 0, object.height - 20]} stroke="#e08a27" strokeWidth={selectedMarker === marker.id && selected ? 4 : 2}/><Circle y={24} radius={selectedMarker === marker.id && selected ? 9 : 7} fill={selectedMarker === marker.id && selected ? accent : '#e08a27'} stroke="#fff" strokeWidth={selectedMarker === marker.id && selected ? 3 : 2}/>
+        {selected && selectedMarker === marker.id && <><Circle name={`note:${marker.id}`} y={-16} radius={8} fill={accent}/><Text x={12} y={-22} text="拖出笔记" fontSize={11} fill={accent} listening={false}/></>}
       </Group>; })}
       {playheadUs !== undefined && playheadUs >= object.inUs && playheadUs <= object.outUs && <>
         <Line points={[(playheadUs - object.inUs) / 1_000_000 * object.pixelsPerSecond, 0, (playheadUs - object.inUs) / 1_000_000 * object.pixelsPerSecond, object.height]} stroke="#e44352" strokeWidth={2} listening={false} />

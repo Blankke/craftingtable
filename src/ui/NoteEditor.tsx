@@ -1,6 +1,6 @@
 // 单编辑器笔记界面：Tiptap JSON 是正文唯一事实，批注 mark 与右侧卡片通过稳定 ID 关联。
 // 字体与字号作用于非空文字选区（TextStyleKit mark）；行距与版心作为整篇设置。选中文字显示浮动菜单，图片只经拖入/粘贴导入并附带上下文尺寸与对齐工具。
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { EditorContent, useEditor, type Editor as TiptapEditor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -49,15 +49,41 @@ function updateImageNodes(value: unknown, assets: ProjectDocument['assets']): JS
 }
 
 /** 测量字体盒度量，用于把首行基线对齐到行网格第一条横线。 */
-function measureBaseline(fontFamily: string, fontSize: number): number {
-  try {
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) return fontSize * 0.8;
-    context.font = `${fontSize}px ${fontFamily}`;
-    const metrics = context.measureText('Mg');
-    return metrics.fontBoundingBoxAscent ?? fontSize * 0.8;
-  } catch { return fontSize * 0.8; }
+// 预览与编辑共享同一份 Tiptap JSON；Markdown 快捷输入形成的语义块可即时预览。
+function MarkdownPreview({ document, assets }: { document: JSONContent; assets: ProjectDocument['assets'] }) {
+  const renderChildren = (nodes: JSONContent[] | undefined): ReactNode => nodes?.map((node, index) => renderNode(node, index)) ?? null;
+  const renderText = (node: JSONContent, key: number) => {
+    let content: ReactNode = node.text ?? '';
+    for (const mark of node.marks ?? []) {
+      if (mark.type === 'bold') content = <strong key={`${key}-bold`}>{content}</strong>;
+      else if (mark.type === 'italic') content = <em key={`${key}-italic`}>{content}</em>;
+      else if (mark.type === 'underline') content = <u key={`${key}-underline`}>{content}</u>;
+      else if (mark.type === 'strike') content = <s key={`${key}-strike`}>{content}</s>;
+      else if (mark.type === 'highlight') content = <mark key={`${key}-highlight`}>{content}</mark>;
+      else if (mark.type === 'code') content = <code key={`${key}-code`}>{content}</code>;
+      else if (mark.type === 'noteAnnotation') content = <mark key={`${key}-annotation`} className="note-preview-annotation">{content}</mark>;
+    }
+    return <span key={key}>{content}</span>;
+  };
+  const renderNode = (node: JSONContent, key: number): ReactNode => {
+    const children = renderChildren(node.content);
+    if (node.type === 'text') return renderText(node, key);
+    if (node.type === 'paragraph') return <p key={key}>{children}</p>;
+    if (node.type === 'heading') { const Tag = `h${Math.min(3, Math.max(1, Number(node.attrs?.level) || 1))}` as 'h1' | 'h2' | 'h3'; return <Tag key={key}>{children}</Tag>; }
+    if (node.type === 'bulletList') return <ul key={key}>{children}</ul>;
+    if (node.type === 'orderedList') return <ol key={key}>{children}</ol>;
+    if (node.type === 'listItem') return <li key={key}>{children}</li>;
+    if (node.type === 'blockquote') return <blockquote key={key}>{children}</blockquote>;
+    if (node.type === 'codeBlock') return <pre key={key}><code>{children}</code></pre>;
+    if (node.type === 'hardBreak') return <br key={key} />;
+    if (node.type === 'horizontalRule') return <hr key={key} />;
+    if (node.type === 'projectImage') {
+      const asset = assets.find(item => item.id === node.attrs?.assetId);
+      return asset ? <img key={key} className="note-preview-image" src={mediaSource(asset.path)} alt={asset.name} style={{ width: Math.min(Number(node.attrs?.width) || 320, 640) }} /> : null;
+    }
+    return <span key={key}>{children}</span>;
+  };
+  return <section className="note-markdown-preview" aria-label="Markdown 预览"><div className="note-preview-label">Markdown 预览</div><article>{renderNode(document, 0)}</article></section>;
 }
 
 export function NoteEditor({ note, assets, initialReadMode = false, onChange, onImportImages }: {
@@ -68,6 +94,8 @@ export function NoteEditor({ note, assets, initialReadMode = false, onChange, on
   const { tokens } = useTheme();
   const annotationColor = colorToHex(tokens.selection);
   const [readMode, setReadMode] = useState(initialReadMode);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [annotationsOpen, setAnnotationsOpen] = useState(true);
   const [activeAnnotation, setActiveAnnotation] = useState<string | null>(null);
   const [annotationLayout, setAnnotationLayout] = useState<AnnotationLayout[]>([]);
   const [imageSelection, setImageSelection] = useState<ImageSelection>(null);
@@ -140,8 +168,6 @@ export function NoteEditor({ note, assets, initialReadMode = false, onChange, on
   useEffect(() => { setReadMode(initialReadMode); setActiveAnnotation(null); }, [note.id, initialReadMode]);
   const typo = note.typography;
   const ruleSpacing = Math.max(typo.ruledSpacing, Math.round(typo.fontSize * typo.lineHeight));
-  const [baseline, setBaseline] = useState(0);
-  useLayoutEffect(() => { setBaseline(measureBaseline(typo.fontFamily, typo.fontSize)); }, [typo.fontFamily, typo.fontSize]);
   const setTypography = (patch: Partial<typeof typo>) => onChange(draft => { draft.typography = { ...draft.typography, ...patch }; });
   // 阅读模式保持正文不可直接输入；划线与批注是明确允许的选择性写操作，短暂打开命令通道后立即恢复锁定。
   const runSelectionCommand = (command: (active: TiptapEditor) => void) => {
@@ -233,18 +259,13 @@ export function NoteEditor({ note, assets, initialReadMode = false, onChange, on
         <label className="note-inline-control">{t('行距', 'Line height')}<input aria-label={t('行距', 'Line height')} type="number" min="1" max="3" step="0.1" value={typo.lineHeight} onChange={event => setTypography({ lineHeight: Math.max(1, Math.min(3, Number(event.target.value) || 2)) })} /></label>
         <label className="note-inline-control">{t('版心', 'Margins')}<input aria-label={t('版心', 'Margins')} type="number" min="24" max="160" value={typo.marginX} onChange={event => setTypography({ marginX: Math.max(24, Math.min(160, Number(event.target.value) || 72)) })} /></label>
       </div>
+      <button aria-pressed={annotationsOpen} onClick={() => setAnnotationsOpen(value => !value)}>{annotationsOpen ? t('收起批注', 'Hide notes') : t('打开批注', 'Show notes')}</button>
+      <button aria-pressed={previewOpen} onClick={() => setPreviewOpen(value => !value)}>{previewOpen ? t('关闭预览', 'Close preview') : t('分屏预览', 'Split preview')}</button>
       <button aria-pressed={readMode} onClick={() => { setReadMode(value => !value); setActiveAnnotation(null); }}>{readMode ? t('编辑模式', 'Edit') : t('阅读模式', 'Read')}</button>
     </header>
-    <div className="note-layout">
-      <div ref={paperRef} className="note-paper" style={{ padding: `${typo.marginY}px ${typo.marginX}px`, fontSize: typo.fontSize, fontFamily: typo.fontFamily, ['--note-rule' as string]: `${ruleSpacing}px`, ['--note-baseline' as string]: `${baseline + (ruleSpacing - typo.fontSize) / 2}px` }}>
-        <EditorContent editor={editor} className="note-text note-tiptap" onClick={event => { if (!(event.target as Element).closest('.note-project-image')) setImageSelection(null); }} onDragOver={event => { if (Array.from(event.dataTransfer.types).includes('Files')) event.preventDefault(); }} onDrop={event => { const files = Array.from(event.dataTransfer.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); void importAtCursor(files); } }} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); void importAtCursor(files); } }} />
-        {imageSelection && imageToolbarPos && <div className="note-image-tools" style={{ top: imageToolbarPos.top, left: imageToolbarPos.left }}>
-          <label>{t('图片宽度', 'Image width')}<input aria-label={t('图片宽度', 'Image width')} type="number" min="80" max="1600" disabled={readMode} value={imageSelection.width} onChange={event => { const width = Math.max(80, Math.min(1600, Number(event.target.value) || 320)); setImageSelection({ ...imageSelection, width }); updateSelectedImage({ width }); }} /></label>
-          {(['left', 'center', 'right'] as const).map(align => <button key={align} disabled={readMode} aria-pressed={imageSelection.align === align} onMouseDown={event => event.preventDefault()} onClick={() => { setImageSelection({ ...imageSelection, align }); updateSelectedImage({ align }); }}>{t(({ left: '左', center: '中', right: '右' })[align], align)}</button>)}
-        </div>}
-      </div>
-      <aside className="note-annotations">
-        <svg className="note-annotation-lines" aria-hidden="true">{annotationLayout.map(layout => !layout.orphaned && <path key={layout.id} d={`M0 ${layout.sourceY}H18V${layout.top + 28}H34`} />)}</svg>
+    <div className={`note-layout${previewOpen ? ' note-layout-preview' : ''}`}>
+      {annotationsOpen && <aside className="note-annotations">
+        <svg className="note-annotation-lines" aria-hidden="true">{annotationLayout.map(layout => !layout.orphaned && <path key={layout.id} d={`M35 ${layout.sourceY}H18V${layout.top + 28}H0`} />)}</svg>
         {annotations.map(annotation => { const layout = annotationLayout.find(item => item.id === annotation.id); return <div key={annotation.id} className="note-annotation" style={{ top: layout?.top ?? 0 }}>
           <span className="note-annotation-dot" />
           {annotation.orphaned && <span className="note-reference-lost">{t('引用原文已删除', 'Reference deleted')}</span>}
@@ -253,7 +274,15 @@ export function NoteEditor({ note, assets, initialReadMode = false, onChange, on
             : <button className="note-annotation-text" onClick={() => setActiveAnnotation(annotation.id)}>{annotation.note || t('写批注…', 'Write annotation…')}</button>}
           <button className="note-annotation-del" aria-label={t('删除批注', 'Delete annotation')} onClick={() => onChange(draft => { draft.annotations = draft.annotations.filter(item => item.id !== annotation.id); })}>×</button>
         </div>; })}
-      </aside>
+      </aside>}
+      <div ref={paperRef} className="note-paper" style={{ padding: `0 ${typo.marginX}px`, fontSize: typo.fontSize, fontFamily: typo.fontFamily, ['--note-rule' as string]: `${ruleSpacing}px`, ['--note-margin-y' as string]: `${typo.marginY}px`, ['--note-baseline' as string]: `${ruleSpacing - Math.max(3, Math.round(typo.fontSize * .14))}px` }}>
+        <EditorContent editor={editor} className="note-text note-tiptap" onClick={event => { if (!(event.target as Element).closest('.note-project-image')) setImageSelection(null); }} onDragOver={event => { if (Array.from(event.dataTransfer.types).includes('Files')) event.preventDefault(); }} onDrop={event => { const files = Array.from(event.dataTransfer.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); void importAtCursor(files); } }} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); void importAtCursor(files); } }} />
+        {imageSelection && imageToolbarPos && <div className="note-image-tools" style={{ top: imageToolbarPos.top, left: imageToolbarPos.left }}>
+          <label>{t('图片宽度', 'Image width')}<input aria-label={t('图片宽度', 'Image width')} type="number" min="80" max="1600" disabled={readMode} value={imageSelection.width} onChange={event => { const width = Math.max(80, Math.min(1600, Number(event.target.value) || 320)); setImageSelection({ ...imageSelection, width }); updateSelectedImage({ width }); }} /></label>
+          {(['left', 'center', 'right'] as const).map(align => <button key={align} disabled={readMode} aria-pressed={imageSelection.align === align} onMouseDown={event => event.preventDefault()} onClick={() => { setImageSelection({ ...imageSelection, align }); updateSelectedImage({ align }); }}>{t(({ left: '左', center: '中', right: '右' })[align], align)}</button>)}
+        </div>}
+      </div>
+      {previewOpen && <MarkdownPreview document={note.document} assets={assets} />}
     </div>
     {editor && <BubbleMenu editor={editor} shouldShow={({ editor: active }) => !active.state.selection.empty} options={{ placement: 'top', offset: 8 }}>
       <div className="note-bubble-menu">

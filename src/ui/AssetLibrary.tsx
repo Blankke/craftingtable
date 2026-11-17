@@ -44,7 +44,7 @@ export function AssetLibrary({ assets, notes, referencedIds, processingAssetIds,
   const { t } = useLanguage();
   return <div className="asset-list">
     {notes.length > 0 && <div className="note-library"><h4>{t('笔记', 'Notes')}</h4>{notes.map(note => <div className="asset-row" key={note.id}>
-      <button className="asset" onClick={() => onOpenNote(note.id)}><span className="asset-preview asset-preview-text">📝</span><span className="asset-details"><b title={note.name}>{note.name}</b><small>{t('结构化正文', 'Structured document')}</small></span></button>
+      <button className="asset" onClick={() => onOpenNote(note.id)}><span className="asset-preview asset-preview-text" aria-hidden="true">笔</span><span className="asset-details"><b title={note.name}>{note.name}</b><small>{t('结构化正文', 'Structured document')}</small></span></button>
       <button aria-label={`${t('放到画布', 'Place on canvas')} ${note.name}`} onPointerDown={event => onPlaceNote(event, note.id)} onClick={() => onAddNote(note.id)}>{t('放到画布', 'Place')}</button>
       <button aria-label={`${t('复制笔记', 'Duplicate note')} ${note.name}`} onClick={() => onDuplicateNote(note.id)}>{t('复制', 'Copy')}</button>
       <button aria-label={`${t('删除笔记', 'Delete note')} ${note.name}`} onClick={() => onRemoveNote(note.id)}>{t('删除', 'Delete')}</button>

@@ -1,7 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, net, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, utilityProcess } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, renameSync, writeFileSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync, realpathSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
@@ -121,6 +121,27 @@ else app.whenReady().then(() => {
     const selected = z.string().parse(folder);
     if (path.dirname(selected) !== root) throw Error('项目位置无效');
     const document = await call({ method: 'open', folder: selected }); projectFolder = selected; return document;
+  });
+  // 首页只允许操作当前项目根目录直属的项目，避免渲染端传入任意路径。
+  const managedProjectFolder = (folder: unknown) => {
+    const selected = z.string().parse(folder);
+    if (!existsSync(selected)) throw Error('项目不存在或已被移除');
+    const managedRoot = realpathSync(root);
+    const managedFolder = realpathSync(selected);
+    if (path.dirname(managedFolder) !== managedRoot || !statSync(managedFolder).isDirectory()) throw Error('项目位置无效');
+    return managedFolder;
+  };
+  ipcMain.handle('projects:reveal', async (_event, folder: unknown) => {
+    const selected = managedProjectFolder(folder);
+    const error = await shell.openPath(selected);
+    if (error) throw Error(error);
+  });
+  ipcMain.handle('projects:delete', (_event, folder: unknown) => {
+    const selected = managedProjectFolder(folder);
+    // 删除动作由页面二次确认后才会抵达这里；若删除当前项目，关闭其写入上下文。
+    if (projectFolder && path.resolve(projectFolder) === selected) projectFolder = null;
+    rmSync(selected, { recursive: true, force: false, maxRetries: 2, retryDelay: 120 });
+    return true;
   });
   ipcMain.handle('projects:pick-folder', async () => {
     const selected = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });

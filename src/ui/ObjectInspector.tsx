@@ -19,7 +19,7 @@ function PresetCard({ label, style }: { label: string; style: NonNullable<Canvas
   const stroke = style.strokeEnabled ? '#5b6cff' : 'rgba(0,0,0,0)';
   const fill = style.fillEnabled ? '#e8ecff' : 'rgba(0,0,0,0)';
   const dash = style.dash === 'dashed' ? '8 5' : style.dash === 'dotted' ? '2 4' : 'none';
-  return <span className="preset-card"><svg viewBox="0 0 48 30" aria-hidden="true">
+  return <span className="preset-preview"><svg viewBox="0 0 48 30" aria-hidden="true">
     <rect x="6" y="5" width="36" height="20" rx="4" fill={fill} stroke={stroke} strokeWidth={style.strokeWidth} strokeDasharray={dash} opacity={style.opacity} />
   </svg><em>{label}</em></span>;
 }
@@ -68,7 +68,7 @@ export function ObjectInspector({ editor, objects, assets }: { editor: Editor; o
   return <div className="object-inspector">
     <div className="inspector-tabs" role="tablist">{['样式', '文本', '排列'].map(item => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}</button>)}</div>
     {tab === '样式' && <>
-      <div className="preset-grid">{presets.map(preset => <button key={preset.id} className="preset-card" aria-label={preset.label} onClick={() => updateStyle(preset.style)}><PresetCard label={preset.label} style={{ ...style, ...preset.style }} /></button>)}</div>
+      <div className="preset-grid">{presets.map(preset => <button key={preset.id} className="preset-option" aria-label={preset.label} onClick={() => updateStyle(preset.style)}><PresetCard label={preset.label} style={{ ...style, ...preset.style }} /></button>)}</div>
       {object.kind === 'media' && <fieldset><legend>{t('轨道颜色', 'Track color')}</legend><div className="inspector-color-row"><ColorTrigger label={t('轨道颜色', 'Track color')} value={object.color ?? '#8888ff'} onChange={applyFill} /><button onClick={restoreAuto}>{t('恢复自动配色', 'Restore auto')}</button></div></fieldset>}
       {object.kind !== 'image' && object.kind !== 'media' && <fieldset><legend>{t('填充', 'Fill')}</legend>
         <label><span><input type="checkbox" checked={style.fillEnabled} onChange={e => updateStyle({ fillEnabled: e.target.checked })} />{t('启用填充', 'Fill on')}</span><ColorTrigger label={t('填充颜色', 'Fill color')} value={style.fill} onChange={applyFill} /></label>
