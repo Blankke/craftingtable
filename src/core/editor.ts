@@ -12,6 +12,8 @@ export class Editor {
   private listeners = new Set<() => void>();
   constructor(document: ProjectDocument) { this.current = documentSchema.parse(document); validateRelations(this.current); }
   get document(): ProjectDocument { return this.current; }
+  // 后台副作用读取最近提交，连续预览只影响画布显示，不取消已有媒体任务。
+  get committedDocument(): ProjectDocument { return this.previewBase ?? this.current; }
   get isPreviewing(): boolean { return this.previewBase !== null; }
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   private emit(): void { this.listeners.forEach(listener => listener()); }

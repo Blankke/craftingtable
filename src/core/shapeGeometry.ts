@@ -10,12 +10,29 @@ export const shapeGroups = {
 
 // 矩形、圆角矩形和椭圆由各渲染器以原生几何绘制，其余图形使用同一份 100×100 SVG 路径。
 export const nativeShapeKinds = new Set(['rectangle', 'roundedRectangle', 'ellipse']);
+
+// 标准多边形的外接框并非全部为正方形；三角形、六边形与五角星使用真实几何比例。
+export function standardShapeRatio(kind: string): number {
+  if (kind === 'triangle' || kind === 'hexagon' || kind === 'merge') return 2 / Math.sqrt(3);
+  if (kind === 'star') return 2 * Math.cos(Math.PI / 10) / (1 + Math.cos(Math.PI / 5));
+  return 1;
+}
+
+// 规则五角星统一归一化至 100×100；结合标准外接框比例可恢复等角、等长的星形。
+const starPoints = Array.from({ length: 10 }, (_, index) => {
+  const angle = -Math.PI / 2 + index * Math.PI / 5;
+  const radius = index % 2 ? Math.sin(Math.PI / 10) / Math.sin(3 * Math.PI / 10) : 1;
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+});
+const starMinX = Math.min(...starPoints.map(point => point.x)), starMaxX = Math.max(...starPoints.map(point => point.x));
+const starMinY = Math.min(...starPoints.map(point => point.y)), starMaxY = Math.max(...starPoints.map(point => point.y));
+const starPath = starPoints.map((point, index) => `${index ? 'L' : 'M'}${((point.x - starMinX) / (starMaxX - starMinX) * 100).toFixed(6)} ${((point.y - starMinY) / (starMaxY - starMinY) * 100).toFixed(6)}`).join(' ') + ' Z';
 export const shapePaths: Readonly<Record<string, string>> = {
   triangle: 'M50 0 L100 100 L0 100 Z', diamond: 'M50 0 L100 50 L50 100 L0 50 Z',
   hexagon: 'M25 0 L75 0 L100 50 L75 100 L25 100 L0 50 Z', parallelogram: 'M25 0 L100 0 L75 100 L0 100 Z',
   trapezoid: 'M25 0 L75 0 L100 100 L0 100 Z', cylinder: 'M0 15 C0 -5 100 -5 100 15 L100 85 C100 105 0 105 0 85 Z M0 15 C0 35 100 35 100 15',
   document: 'M0 0 L100 0 L100 85 C65 60 35 110 0 85 Z', cloud: 'M20 80 C-10 80 -5 40 15 40 C0 10 40 0 50 20 C65 -5 100 10 90 35 C115 40 105 80 85 80 C80 105 45 100 40 85 C25 100 10 95 20 80 Z',
-  star: 'M50 0 L61 35 L98 35 L68 57 L79 94 L50 72 L21 94 L32 57 L2 35 L39 35 Z',
+  star: starPath,
   callout: 'M0 0 L100 0 L100 75 L45 75 L20 100 L20 75 L0 75 Z',
   cross: 'M33 0 L67 0 L67 33 L100 33 L100 67 L67 67 L67 100 L33 100 L33 67 L0 67 L0 33 L33 33 Z',
   arrowShape: 'M0 25 L60 25 L60 0 L100 50 L60 100 L60 75 L0 75 Z',

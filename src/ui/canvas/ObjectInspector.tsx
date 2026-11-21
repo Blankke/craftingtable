@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Arrangement, Editor } from '../../core/editor';
 import type { CanvasObject, ProjectDocument } from '../../core/document';
-import { resizeObject, restoredImageRatio, styleOf } from '../../core/appearance';
+import { isShapeObject, lockStandardShape, resizeObject, restoredImageRatio, styleOf } from '../../core/appearance';
 import { stylePresetsFor } from '../../core/elementStyles';
 import { TextToolbar } from './TextToolbar';
 import { ColorTrigger } from '../theme/ColorEditor';
@@ -77,7 +77,9 @@ export function ObjectInspector({ editor, objects, assets }: { editor: Editor; o
     <fieldset className="object-geometry"><legend>{t('位置与尺寸', 'Position and size')}</legend><NumberField editor={editor} label="X" value={object.x} onPreview={x => previewPosition('x', x)} />
       <NumberField editor={editor} label="Y" value={object.y} onPreview={y => previewPosition('y', y)} />
       <NumberField editor={editor} label={t('旋转（°）', 'Rotation (°)')} value={object.rotation ?? 0} min={-360} max={360} onPreview={rotation => editor.preview(draft => { draft.objects.filter(item => objects.some(o => o.id === item.id)).forEach(target => { target.rotation = rotation || undefined; }); })} />
-      {object.kind !== 'media' && <><NumberField editor={editor} label={t('宽度', 'Width')} value={object.width} min={12} onPreview={width => previewUpdate(target => resizeObject(target, width, target.height))} /><NumberField editor={editor} label={t('高度', 'Height')} value={object.height} min={12} onPreview={height => previewUpdate(target => resizeObject(target, target.width, height, 'height'))} /></>}</fieldset>
+      {object.kind !== 'media' && <><NumberField editor={editor} label={t('宽度', 'Width')} value={object.width} min={12} onPreview={width => previewUpdate(target => resizeObject(target, width, target.height))} /><NumberField editor={editor} label={t('高度', 'Height')} value={object.height} min={12} onPreview={height => previewUpdate(target => resizeObject(target, target.width, height, 'height'))} /></>}
+      {isShapeObject(object) && <label><span><input type="checkbox" aria-label={t('锁定标准比例', 'Lock standard proportions')} checked={object.aspectLocked === true} onChange={event => update(target => lockStandardShape(target, event.target.checked))} />{t('锁定标准比例', 'Lock standard proportions')}</span></label>}
+    </fieldset>
     <div className="inspector-tabs" role="tablist">{['样式', '文本', '排列'].map(item => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}</button>)}</div>
     {tab === '样式' && <>
       <div className="preset-grid">{presets.map(preset => <button key={preset.id} className="preset-option" aria-label={preset.label} onClick={() => updateStyle(preset.style)}><PresetCard label={preset.label} style={{ ...style, ...preset.style }} /></button>)}</div>

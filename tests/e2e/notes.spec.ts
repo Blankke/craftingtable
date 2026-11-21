@@ -49,9 +49,12 @@ test('笔记输入、浮动菜单批注、图片与标签恢复', async () => {
     await page.getByRole('button', { name: '关闭排版', exact: true }).click();
     // Markdown 源标记保留在编辑正文中，分屏预览再按 Markdown 语义排版。
     await body.press('Control+End');
+    // 等待 Chromium 将折叠后的光标同步到正文，再继续输入，避免测试按键抢在 selectionchange 前。
+    await expect.poll(() => body.evaluate(element => { const selection = window.getSelection(); return Boolean(selection?.isCollapsed && element.contains(selection.anchorNode)); })).toBe(true);
     await page.keyboard.press('Enter');
     await page.keyboard.type('# 标题段落');
     await expect(body).toContainText('# 标题段落');
+    await expect(body).toContainText('中文输入与保存');
     // 分屏预览复用同一份结构化 Markdown 文档，批注栏可按需要收起。
     await page.getByRole('button', { name: '分屏预览' }).click();
     await expect(page.locator('.note-markdown-preview')).toBeVisible();

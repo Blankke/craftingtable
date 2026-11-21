@@ -1,5 +1,6 @@
 // 后台只处理项目文件和素材；编辑器事实仍由渲染进程持有。
 import { mkdir, readFile, readdir, rename, copyFile, stat, open, rm, realpath, writeFile } from 'node:fs/promises';
+import { mediaToolPath } from './mediaTools';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -70,7 +71,7 @@ function limited<T>(task: () => Promise<T>, signal: AbortSignal): Promise<T> {
 
 function runFfmpeg(args: string[], durationUs: number, signal: AbortSignal, progress: (value: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(mediaTool('ffmpeg'), ['-nostdin', '-progress', 'pipe:2', ...args], { windowsHide: true, signal });
+    const child = spawn(mediaToolPath('ffmpeg'), ['-nostdin', '-progress', 'pipe:2', ...args], { windowsHide: true, signal });
     let buffer = '', errorTail = '';
     let timedOut = false;
     const timeout = setTimeout(() => { timedOut = true; child.kill(); }, 300_000);
@@ -91,15 +92,9 @@ function runFfmpeg(args: string[], durationUs: number, signal: AbortSignal, prog
   });
 }
 
-function mediaTool(name: 'ffmpeg' | 'ffprobe'): string {
-  const packaged = path.join(process.resourcesPath ?? '', 'vendor', `${name}.exe`);
-  const local = path.resolve(__dirname, '../vendor', `${name}.exe`);
-  return process.resourcesPath && existsSync(packaged) ? packaged : existsSync(local) ? local : name;
-}
-
 async function probeDuration(file: string): Promise<number | undefined> {
-  // 优先使用随安装包分发的 ffprobe；开发环境可使用 PATH 中的版本。
-  const command = mediaTool('ffprobe');
+  // 开发与发行包均使用已校验的平台 ffprobe，避免受系统 PATH 版本影响。
+  const command = mediaToolPath('ffprobe');
   try {
     const { stdout } = await execFileAsync(command, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file], { timeout: 15_000, maxBuffer: 1024 * 1024 });
     const seconds = Number(stdout.trim());
@@ -110,7 +105,7 @@ async function probeDuration(file: string): Promise<number | undefined> {
 async function decodePcm(file: string, signal: AbortSignal): Promise<{ pcm: Int16Array; sampleRate: number }> {
   // 把音频解码为单声道 16-bit PCM；8 kHz 采样对 120 列/秒的峰值已足够，且大幅压缩内存占用。
   return new Promise((resolve, reject) => {
-    const child = spawn(mediaTool('ffmpeg'), ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-f', 's16le', 'pipe:1'], { windowsHide: true, signal, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(mediaToolPath('ffmpeg'), ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-f', 's16le', 'pipe:1'], { windowsHide: true, signal, stdio: ['ignore', 'pipe', 'pipe'] });
     const chunks: Buffer[] = [];
     let errorTail = '';
     child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -206,7 +201,7 @@ async function homeMediaThumbnail(folder: string, asset: z.infer<typeof document
       const temporary = `${target}.${crypto.randomUUID()}.tmp.jpg`;
       try {
         const args = ['-v', 'error', ...(asset.kind === 'video' ? ['-ss', '0.5'] : []), '-i', realFile, '-frames:v', '1', '-vf', 'scale=320:200:force_original_aspect_ratio=decrease,pad=320:200:(ow-iw)/2:(oh-ih)/2', '-q:v', '8', '-y', temporary];
-        await execFileAsync(mediaTool('ffmpeg'), args, { timeout: 20_000, maxBuffer: 256_000, windowsHide: true });
+        await execFileAsync(mediaToolPath('ffmpeg'), args, { timeout: 20_000, maxBuffer: 256_000, windowsHide: true });
         await rename(temporary, target);
       } finally { await rm(temporary, { force: true }); }
     }

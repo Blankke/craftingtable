@@ -20,6 +20,7 @@ import { MediaTaskList } from './media/MediaTaskList';
 import { TextAssetCreator } from './media/TextAssetCreator';
 import { usePlaybackStore } from './media/playbackStore';
 import { useTaskStore } from './media/taskStore';
+import { useMediaAnalysis } from './media/useMediaAnalysis';
 import { useInteractionStore } from './canvas/interactionStore';
 import { SettingsPanel } from './shared/SettingsPanel';
 import { useLanguage } from './shared/language';
@@ -80,10 +81,8 @@ export function App() {
   const trimMode = useInteractionStore(state => state.trimMode);
   const setTrimMode = useInteractionStore(state => state.setTrimMode);
   const analysis = useTaskStore(state => state.analysis);
-  const analysisRetry = useTaskStore(state => state.retryVersion);
-  const setAnalysis = useTaskStore(state => state.updateAnalysis);
-  const resetAnalysis = useTaskStore(state => state.resetAnalysis);
   const retryAnalysis = useTaskStore(state => state.retry);
+  useMediaAnalysis(editor, folder);
   const canvasRef = useRef<HTMLElement | null>(null);
   const activeEditor = useRef(editor); activeEditor.current = editor;
   const [dropPreview, setDropPreview] = useState<{ x: number; y: number; label: string; image?: string; shape?: typeof shapeKinds[number]; note?: boolean } | null>(null);
@@ -98,7 +97,6 @@ export function App() {
   const copiedIds = useRef<string[]>([]);
   const spacePanUsed = useRef(false);
   const spacePressed = useRef(false);
-  const taskOwners = useRef(new Map<string, string>());
   useEffect(() => { api.listProjects().then(setProjects).catch(error => setHomeError(`${t('读取项目失败', 'Could not load projects')}：${String(error)}`)); }, []);
   useEffect(() => {
     if (!folder || !canvasRef.current) return;
@@ -125,14 +123,6 @@ export function App() {
     const removeRestartListener = api.onBackendRestart(() => { void scheduler.flush().catch(() => undefined); });
     return () => { unsubscribe(); removeFlushListener(); removeRestartListener(); scheduler.dispose(); if (autosave.current === scheduler) autosave.current = null; };
   }, [editor, folder, recoveredProject]);
-  const mediaSignature = document.objects.filter(item => item.kind === 'media').map(item => {
-    const asset = document.assets.find(candidate => candidate.id === item.assetId);
-    // 音频峰值只依赖源文件；裁剪、时间缩放与轨道长度变化不触发重新分析。
-    return asset?.kind === 'audio'
-      ? `${item.id}:${item.assetId}:${asset.path}`
-      : `${item.id}:${item.assetId}:${asset?.path}:${asset?.status}:${item.inUs}:${item.outUs}:${item.pixelsPerSecond}`;
-  }).join('|');
-  const analysisKey = editor.isPreviewing ? 'preview' : mediaSignature;
   const selectedObjects = document.objects.filter(item => selected.includes(item.id));
   const selectedConnections = useInteractionStore(state => state.selectedConnections);
   const selectedConnectionObjects = document.connections.filter(item => selectedConnections.includes(item.id));
@@ -142,34 +132,7 @@ export function App() {
   ]);
   const processingAssetIds = new Set(document.objects.flatMap(object => object.kind === 'media' && analysis[object.id]?.processing ? [object.assetId] : []));
   const failedAssetIds = new Set(document.objects.flatMap(object => object.kind === 'media' && analysis[object.id]?.error ? [object.assetId] : []));
-  useEffect(() => { resetAnalysis(); }, [editor, resetAnalysis]);
   useEffect(() => { setTrimMode(false); }, [playbackMediaId]);
-  useEffect(() => api.onTaskProgress(progress => {
-    const objectId = taskOwners.current.get(progress.taskId);
-    if (objectId) setAnalysis(previous => ({ ...previous, [objectId]: { ...previous[objectId], progress: progress.percent, processing: progress.percent < 100 } }));
-  }), []);
-  useEffect(() => {
-    if (!folder) return;
-    if (editor.isPreviewing) return;
-    let cancelled = false;
-    const started: string[] = [];
-    const snapshot = editor.document;
-    setAnalysis(() => ({}));
-    for (const object of snapshot.objects) {
-      if (object.kind !== 'media') continue;
-      const asset = snapshot.assets.find(item => item.id === object.assetId);
-      if (!asset || asset.status === 'missing' || (asset.kind !== 'audio' && asset.kind !== 'video')) continue;
-      const taskId = crypto.randomUUID();
-      started.push(taskId);
-      taskOwners.current.set(taskId, object.id);
-      setAnalysis(previous => ({ ...previous, [object.id]: { processing: true, progress: 0, taskId } }));
-      void api.analyzeAsset({ assetId: asset.id, assetPath: asset.path, kind: asset.kind, inUs: object.inUs, outUs: object.outUs, pixelsPerSecond: object.pixelsPerSecond, taskId })
-        .then(response => { if (!cancelled) setAnalysis(previous => ({ ...previous, [object.id]: response.ok ? response.result : { error: response.error.message, errorCode: response.error.code, retryable: response.error.retryable } })); })
-        .catch(error => { if (!cancelled) setAnalysis(previous => ({ ...previous, [object.id]: { error: String(error), errorCode: 'BACKEND', retryable: true } })); })
-        .finally(() => taskOwners.current.delete(taskId));
-    }
-    return () => { cancelled = true; started.forEach(taskId => { void api.cancelTask(taskId).catch(() => undefined); taskOwners.current.delete(taskId); }); };
-  }, [folder, editor, analysisKey, analysisRetry]);
   async function createProject() {
     if (creatingLock.current) return;
     const name = projectName.trim();

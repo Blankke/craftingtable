@@ -1,5 +1,5 @@
 import type { ProjectDocument } from '../../core/document';
-import type { MediaAnalysis } from '../canvas/CanvasStage';
+import type { MediaAnalysis } from '../../core/mediaAnalysis';
 import { useLanguage } from '../shared/language';
 
 export function MediaTaskList({ document, analysis, onCancel, onRetry }: {

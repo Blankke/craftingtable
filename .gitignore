@@ -9,3 +9,5 @@ release/
 .env
 .env.*
 vendor/*.exe
+vendor/win-x64/
+vendor/linux-x64/

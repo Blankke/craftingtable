@@ -1,0 +1,14 @@
+# Linux 构建只接收源码和已校验的目标媒体资源，避免把凭据、用户项目与 Windows 依赖送入镜像。
+.git
+.env
+.env.*
+node_modules
+.runtime
+test-results
+playwright-report
+release
+dist
+dist-electron
+vendor/*.exe
+vendor/win-x64
+*.log

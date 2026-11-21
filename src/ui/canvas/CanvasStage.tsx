@@ -14,9 +14,9 @@ import { useLanguage } from '../shared/language';
 import { useTheme } from '../theme/themeStore';
 import { colorToHex, colorToRgba } from '../../core/theme';
 import { decodeWaveform, resampleColumns, type WaveformPeaks } from '../../core/waveform';
+import type { MediaAnalysis } from '../../core/mediaAnalysis';
 
 export type Tool = 'select' | 'text' | typeof import('../../core/document').shapeKinds[number] | 'arrow' | 'brush';
-export type MediaAnalysis = { waveform?: { path: string; samplesPerSecond: number; durationUs: number }; frames?: { path: string; timeUs: number }[]; processing?: boolean; progress?: number; taskId?: string; error?: string; errorCode?: string; retryable?: boolean };
 type Point = { x: number; y: number };
 type Gesture =
   | { kind: 'pan'; start: Point; camera: Point }

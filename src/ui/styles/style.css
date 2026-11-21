@@ -252,7 +252,7 @@ aside{width:300px;border-left:1px solid var(--wb-border);display:flex;flex-direc
 /* 启动画面 */
 .splash{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:var(--wb-background);transition:opacity .45s ease;pointer-events:none}
 .splash-fade{opacity:0;pointer-events:none}
-.splash-svg{max-width:92vw;height:160px;overflow:visible}
+.splash-svg{max-width:92vw;height:auto;max-height:50vh;overflow:visible}
 .splash-title{transition:stroke-dashoffset 2.5s cubic-bezier(.4,0,.2,1) .5s}
 .splash-sub{font-size:15px;letter-spacing:.28em;opacity:.72}
 /* 玻璃文件夹项目卡片 */

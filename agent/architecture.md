@@ -1,15 +1,16 @@
 # 项目作用与结构
 
-工作台面向个人创作者，在同一画布上组织图片、文字、音频和视频，进行时间标记、裁剪、注释、连线与策划。产品只提供 Electron 桌面应用，优先支持 Windows 离线使用。
+工作台面向个人创作者，在同一画布上组织图片、文字、音频和视频，进行时间标记、裁剪、注释、连线与策划。产品只提供 Electron 桌面应用，支持 Windows 与 Linux x64 离线使用。
 
 ## 运行路径
 
 - `npm.cmd run dev`：先构建 Electron 主进程，再启动 Vite 与未安装的 Electron 桌面窗口。Vite 只服务该窗口的界面热更新；主进程修改需重启命令。开发项目默认在忽略提交的 `.runtime/projects/`；Electron 设置、缓存和网络数据保存在 Windows 用户目录的 `media-planning-workbench-dev/`，与正式安装版隔离。
-- `npm.cmd run build`：检查 TypeScript，构建界面和桌面进程。开发预览和人工检查统一使用 `npm.cmd run dev`；仅在用户明确确认稳定发布后，才运行 `npm.cmd run dist:win` 准备 FFmpeg 并生成 NSIS 安装包。
+- `npm.cmd run build`：检查 TypeScript，构建界面和桌面进程。开发预览和人工检查统一使用 `npm.cmd run dev`；仅在用户明确确认稳定发布后，才运行 `npm run dist:win` 生成 NSIS 与便携 EXE，或 `npm run dist:linux` 生成 AppImage、DEB、RPM；`dist:linux:docker` 在 Debian 12 隔离构建并复制产物，桌面验收在宿主机执行。
 - `npm.cmd run verify`：类型检查、单元测试及端到端测试。此命令会启动 Electron，必须在沙箱外执行；`smoke`、`test:e2e`、`dev` 和 `start` 同理。具体复测边界见根目录 `AGENTS.md` 与 `agent/project-rules.md`。
 
 ## 目录职责
 
+- `src/core/mediaAnalysis.ts` 与 `src/ui/media/useMediaAnalysis.ts`：每条轨道按媒体输入独立调度，后台读取编辑器最近提交的文档；无关编辑与数值预览不取消任务，新抽帧完成前保留已有结果，过期响应不能覆盖新任务。
 - `src/core/`：项目文档模型、校验、编辑命令、自动保存和时间刻度；文档是编辑器的单一事实来源。自动保存保留载入修订号，并在订阅建立时检查当前快照，覆盖首帧快速操作。
 - `src/ui/`：`App.tsx` 编排应用；`home/`、`notes/`、`canvas/`、`media/`、`theme/`、`workspace/` 分别组织首页、笔记、画布、媒体、主题和分栏；共用控件、语言与设置放在 `shared/`，全局样式放在 `styles/`。测试与模块就近放置，避免平铺或重复入口。
 - `src/types/`：第三方 Markdown 插件的补充类型声明；Vite 环境和桌面桥接声明保留在 `src/vite-env.d.ts`。
@@ -26,7 +27,7 @@
 - `src/ui/notes/NotesWorkspace.tsx`：笔记导航、标题/正文搜索、收藏、多标签、新建/复制/删除及可调整导航宽度。收藏与导航宽度是本机偏好，正文仍写入项目；显示宽度和拖柄上限按可用空间同步限幅。
 - `src/ui/notes/NoteSearch.ts`：跨格式文字查找与 ProseMirror 装饰，匹配索引对应原始 Unicode 文本。替换通过单次事务完成并隔开撤销历史；查找高亮不写入正文。
 - `src/ui/home/SplashScreen.tsx`、`src/ui/home/splashStore.ts`、`src/ui/home/GlassFolderCard.tsx`：一次性手写启动画面与玻璃文件夹项目卡片。
-- Hello 路径由 `scripts/build/generate-hello-path.mjs` 从本地 Indie Flower 字体生成，构建和桌面开发入口会自动重建 `src/ui/home/helloPath.ts`。字体及 OFL 授权保存在 `src/assets/fonts/`；文件夹原版组件保存在 `src/ui/home/vendor/GlassFolderOriginal.tsx`，项目入口由 `GlassFolderCard` 包装。
+- Hello 路径由 `scripts/build/generate-hello-path.mjs` 从本地 Indie Flower 字体以 288px 字号居中生成，构建和桌面开发入口会自动重建 `src/ui/home/helloPath.ts`。字体及 OFL 授权保存在 `src/assets/fonts/`；文件夹原版组件保存在 `src/ui/home/vendor/GlassFolderOriginal.tsx`，项目入口由 `GlassFolderCard` 包装。
 - 笔记正文组件按需加载，单个 Tiptap 编辑器管理跨段选区、中文组合输入、粘贴与撤销；选择、粘贴或拖入的图片经受限 IPC 导入后插入光标位置，支持尺寸与对齐。图片工具条锚定真实图片，并跟随滚动/尺寸/对齐更新，限制在正文边界内。批注通过稳定 ID mark 锚定，辅助栏按列表呈现，点击定位原文；引用删除后保留批注并标记失效，删除批注同步清除正文 mark。复制笔记生成独立批注 ID；画布缩略图共享正文，双击以阅读模式打开。外部正文先用当前 schema 规范化再比较，菜单布局事务不触发 React 正文重绘；焦点离开正文及浮动菜单时关闭菜单，避免选区恢复和层级遮挡问题。
 - `src/ui/media/mediaSource.ts`：把项目相对路径映射到 Electron 受限媒体协议；项目读写通过 preload 暴露的受限 API 调用。
 - `electron/main.ts`：窗口、协议、设置和 IPC 边界。默认项目根目录保存在 Electron `userData/settings.json`；修改默认目录只影响以后新建的项目。
@@ -35,8 +36,10 @@
 - `electron/preload.ts`：向渲染进程暴露受限 API；不直接暴露 Node 文件系统。
 - `electron/worker.ts`：项目和素材文件读写、媒体时长检测、FFmpeg 缓存任务及恢复快照。
 - 首页列表只读项目文档，按修订缓存由实际对象生成的 SVG 预览和 FFmpeg 媒体缩略图；画布预览复现项目保存的最后相机视口，列出项目不切换活动项目。音频波形缓存为带版本头的单声道 PCM 峰值二进制文件，画布按裁剪区间与 pixelsPerSecond 重采样到像素列并以单条 Konva Shape 绘制 1px 峰值线，改色与时间缩放不重新分析素材。
+- `electron/mediaTools.ts`：主进程与后台共用平台媒体工具路径；开发使用 `vendor/win-x64` 或 `vendor/linux-x64`，发行包放在 resources/vendor。`scripts/build/prepare-media.mjs` 依据固定下载清单校验归档和工具 SHA-256，支持断点续传。
 - `scripts/build/`：Electron 编译、Hello 路径、图标生成和媒体工具准备；`scripts/dev/`：免安装桌面入口；`scripts/test/`：完整回归与冒烟入口。所有 npm 命令从仓库根目录运行，脚本资源路径随目录统一更新。
-- `scripts/visual/`：首页、工作台与模式切换的可复现验收脚本，默认使用 Electron。工作台脚本的 `--browser` 使用内存 IPC 夹具，仅作为 UI 检查。截图存入 `test-results/`，脚本退出时释放本次临时项目。
+- `scripts/test/smoke-desktop.mjs`：开发与打包程序共用冒烟入口；每次使用独立项目目录并核对本次结果。Windows 安装验收脚本在临时目录完成安装、图标、冒烟与卸载，图标提取使用独立进程避免资源句柄占用 EXE。
+- `scripts/visual/`：首页、工作台、模式切换及发布修复的可复现验收脚本，默认使用 Electron。工作台脚本的 `--browser` 使用内存 IPC 夹具，仅作为 UI 检查。截图存入 `test-results/`，脚本退出时释放本次临时项目。
 - `scripts/maintenance/clean.mjs`：`clean:test` 只清理截图和测试报告；`clean` 同时清理构建输出、Vite 缓存、媒体解压副本与旧渲染缓存，`--dry-run` 只预览。固定白名单保留用户项目、本机设置、依赖、媒体可执行文件与下载归档，预检所有目标及父目录以拒绝符号链接或目录联接。
 - `tests/e2e/` 与 `tests/fixtures/`：端到端用例和固定的小样本素材。测试项目使用独立临时目录，不写入正式用户项目；`tests/tooling/` 验证清理工具的范围、预览及目录联接边界，并纳入 `verify`。
 - `build/`：应用图标；源图位于 `build/source/`，可用 `scripts/build/make-icon.ps1` 重新生成。
@@ -49,7 +52,7 @@
 
 项目目录包含 `project.json`、`assets/`、`cache/`、`recovery/`。`project.json` 保存编辑器文档，原始素材复制到 `assets/`，媒体分析结果放在可重建的 `cache/`，`recovery/` 保存恢复快照。当前项目格式为 `schemaVersion: 3`，正文为每篇笔记的一份 Tiptap JSON 文档；后台仅在读取历史文件时统一迁移，校验成功后先在 `recovery/` 备份原件，再原子写入主文件，恢复快照也经过同一迁移入口。笔记图片和画布对象共同参与素材引用校验。界面语言存在 Electron 会话的 localStorage，不写入项目文档。
 
-外部文件拖入后由 preload 的 `webUtils.getPathForFile` 提取路径，通过校验过的 `assets:drop` IPC 复用后台导入；绝对路径不暴露给页面。图片放置前读取自然尺寸，默认锁定比例；裁剪以原图归一化区域保存，只改变显示，不覆盖源文件。对象样式包含填充、渐变、线型、周长间距、透明度和字体属性。
+外部文件拖入后由 preload 的 `webUtils.getPathForFile` 提取路径，通过校验过的 `assets:drop` IPC 复用后台导入；绝对路径不暴露给页面。图形可开启标准比例锁，矩形、椭圆、菱形保持 1:1，三角形、六边形和五角星按几何外接框比例缩放；数值输入与画布手柄共用尺寸函数。图库 SVG 为描边预留边界并使用固定线宽，避免四边裁切。图片放置前读取自然尺寸，默认锁定比例；裁剪以原图归一化区域保存，只改变显示，不覆盖源文件。对象样式包含填充、渐变、线型、周长间距、透明度和字体属性。
 
 剪贴板无路径图片经 `assets:paste-image` 传递限定大小的字节，后台校验 PNG/JPEG/GIF/WebP 签名并写入素材目录。
 

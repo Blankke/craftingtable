@@ -1,21 +1,42 @@
 {
   "name": "media-planning-workbench",
   "version": "0.1.0",
+  "description": "CraftingTable — a local multimedia planning canvas and notebook",
+  "author": {
+    "name": "Blankke",
+    "email": "1169809321@qq.com",
+    "url": "https://github.com/Blankke"
+  },
+  "homepage": "https://github.com/Blankke/craftingtable",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Blankke/craftingtable.git"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.21.0"
+  },
   "private": true,
   "type": "module",
   "main": "dist-electron/main.cjs",
+  "desktopName": "craftingtable.desktop",
   "scripts": {
-    "dev": "chcp 65001>nul && node scripts/build/generate-hello-path.mjs && node scripts/build/build-electron.mjs && node scripts/dev/dev-desktop.mjs",
+    "dev": "node scripts/build/generate-hello-path.mjs && node scripts/build/build-electron.mjs && node scripts/dev/dev-desktop.mjs",
     "clean": "node scripts/maintenance/clean.mjs",
     "clean:test": "node scripts/maintenance/clean.mjs --tests",
     "test:tooling": "node --test tests/tooling/*.test.mjs",
     "start": "electron .",
     "smoke": "npm run build && npm run prepare:media && node scripts/test/smoke-desktop.mjs",
-    "prepare:media": "powershell -ExecutionPolicy Bypass -File scripts/build/prepare-media.ps1",
-    "verify": "tsc --noEmit && vitest run src electron/projectSettings.test.ts electron/devDirectories.test.ts && npm run test:tooling && npm run test:e2e",
+    "prepare:media": "node scripts/build/prepare-media.mjs",
+    "test:unit": "tsc --noEmit && vitest run src electron/projectSettings.test.ts electron/devDirectories.test.ts",
+    "verify": "npm run test:unit && npm run test:tooling && npm run test:e2e",
     "test:e2e": "npm run prepare:media && npm run build && playwright test",
     "build": "node scripts/build/generate-hello-path.mjs && tsc --noEmit && vite build && node scripts/build/build-electron.mjs",
-    "dist:win": "npm run build && npm run prepare:media && electron-builder --win nsis --x64"
+    "dist:win": "npm run build && npm run prepare:media && electron-builder --win nsis portable --x64 --publish never",
+    "dist:linux": "npm run build && npm run prepare:media && electron-builder --linux AppImage deb rpm --x64 --publish never",
+    "dist:linux:docker": "node scripts/build/build-linux-container.mjs",
+    "release:checksums": "node scripts/build/release-checksums.mjs",
+    "visual:release": "node scripts/visual/preview-release.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.0.0",
@@ -41,7 +62,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-konva": "^18.2.10",
-    "zod": "^3.24.2",
+    "zod": "^4.6.7",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
@@ -51,16 +72,16 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.4.11",
-    "electron-builder": "^25.1.8",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.25.0",
     "opentype.js": "^2.0.0",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
-    "vitest": "^3.0.5"
+    "vitest": "^5.1.1"
   },
   "build": {
-    "appId": "local.media.planning",
+    "appId": "io.github.blankke.craftingtable",
     "productName": "工作台",
     "directories": {
       "output": "release"
@@ -68,21 +89,73 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/**/*"
     ],
+    "artifactName": "CraftingTable-${version}-${os}-${arch}.${ext}",
     "extraResources": [
       {
         "from": "vendor",
         "to": "vendor",
         "filter": [
-          "**/*"
+          "*.txt",
+          "LICENSE"
         ]
       }
     ],
     "win": {
-      "target": "nsis",
-      "signAndEditExecutable": false,
-      "icon": "build/icon.ico"
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "vendor/win-x64",
+          "to": "vendor",
+          "filter": [
+            "**/*",
+            "!integrity.json"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "portable": {
+      "artifactName": "CraftingTable-${version}-win-${arch}-portable.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "executableName": "craftingtable",
+      "syncDesktopName": true,
+      "category": "Office",
+      "icon": "build/icon.png",
+      "maintainer": "Blankke <1169809321@qq.com>",
+      "synopsis": "Local multimedia planning canvas and notebook",
+      "desktop": {
+        "entry": {
+          "Name": "CraftingTable",
+          "Comment": "Organize media, ideas and notes on one canvas"
+        }
+      },
+      "extraResources": [
+        {
+          "from": "vendor/linux-x64",
+          "to": "vendor",
+          "filter": [
+            "**/*",
+            "!integrity.json"
+          ]
+        }
+      ]
     }
   }
 }

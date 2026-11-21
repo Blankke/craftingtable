@@ -50,7 +50,7 @@ test('项目创建后画布对象能保存并重开', async () => {
     await page.mouse.up({ button: 'middle' });
     const panEvents = await page.evaluate(() => (window as Window & { panEvents?: { type: string; x: number; y: number; buttons: number; button: number }[] }).panEvents ?? []);
     expect(panEvents.find(event => event.type === 'mousedown' && event.button === 1), JSON.stringify(panEvents)).toMatchObject({ x: 700, y: 450 });
-    await expect(page.locator('.canvas')).toHaveCSS('background-position', '50px 20px, 50px 20px');
+    await expect(page.locator('.canvas'), JSON.stringify(panEvents)).toHaveCSS('background-position', '50px 20px, 50px 20px');
     // Ctrl + 滚轮改变相机比例时，背景网格和对象保持同一缩放尺度。
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -100);

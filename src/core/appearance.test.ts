@@ -1,12 +1,37 @@
 // 用法：npm.cmd exec -- vitest run src/core/appearance.test.ts。验证图片几何与标记关系的持久化契约。
 import { describe, expect, it } from 'vitest';
-import { resizeObject, restoredImageRatio, styleOf } from './appearance';
+import { lockStandardShape, resizeObject, restoredImageRatio, styleOf } from './appearance';
 import { documentSchema, newDocument, shapeKinds, type CanvasObject } from './document';
 import { Editor } from './editor';
-import { hasShapeGeometry, shapeGroups } from './shapeGeometry';
+import { hasShapeGeometry, shapeGroups, shapePath, standardShapeRatio } from './shapeGeometry';
 import { shapeLabels } from './appearance';
 
 describe('图片、样式与显式标记', () => {
+  it('标准比例锁恢复规则图形，宽高输入和撤销保存保持一致', () => {
+    for (const kind of shapeKinds) {
+      const document = newDocument('比例锁');
+      document.objects.push({ id: crypto.randomUUID(), kind, x: 30, y: 40, width: 300, height: 120, groupId: null, fill: '#fff', stroke: '#000' });
+      const editor = new Editor(document);
+      editor.execute(draft => lockStandardShape(draft.objects[0], true));
+      const locked = editor.document.objects[0];
+      expect(locked.x + locked.width / 2).toBeCloseTo(180);
+      expect(locked.width / locked.height).toBeCloseTo(standardShapeRatio(kind));
+      editor.preview(draft => resizeObject(draft.objects[0], 220, 120)); editor.commitPreview();
+      expect(editor.document.objects[0].width / editor.document.objects[0].height).toBeCloseTo(standardShapeRatio(kind));
+      expect(documentSchema.parse(JSON.parse(JSON.stringify(editor.document)))).toEqual(editor.document);
+      editor.undo(); expect(editor.document.objects[0].height).toBe(120);
+      editor.execute(draft => { lockStandardShape(draft.objects[0], false); resizeObject(draft.objects[0], 240, 120); });
+      expect(editor.document.objects[0].width / editor.document.objects[0].height).toBe(2);
+    }
+  });
+  it('锁定的五角星外顶点落在同一个圆上，三角形与六边形使用真实外接框比例', () => {
+    expect(standardShapeRatio('triangle')).toBeCloseTo(2 / Math.sqrt(3));
+    expect(standardShapeRatio('hexagon')).toBeCloseTo(2 / Math.sqrt(3));
+    const points = [...shapePath('star')!.matchAll(/[ML]([\d.]+) ([\d.]+)/g)].map(match => ({ x: Number(match[1]) * standardShapeRatio('star'), y: Number(match[2]) }));
+    const center = { x: 50 * standardShapeRatio('star'), y: 100 / (1 + Math.cos(Math.PI / 5)) };
+    const distances = points.filter((_, index) => index % 2 === 0).map(point => Math.hypot(point.x - center.x, point.y - center.y));
+    for (const distance of distances) expect(distance).toBeCloseTo(distances[0], 5);
+  });
   const image = (): Extract<CanvasObject, { kind: 'image' }> => ({ id: crypto.randomUUID(), kind: 'image', assetId: crypto.randomUUID(), x: 0, y: 0, width: 400, height: 200, aspectLocked: true, groupId: null });
   it('锁定比例时宽高输入和手柄缩放使用同一比例，解锁后独立改变', () => {
     const object = image();

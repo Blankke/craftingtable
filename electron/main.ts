@@ -8,13 +8,20 @@ import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 import { readProjectsRoot, saveProjectsRoot } from './projectSettings';
 import { developmentDirectories } from './devDirectories';
+import { mediaToolPath } from './mediaTools';
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'project-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }]);
+// 媒体峰值通过 fetch 读取；显式启用标准 CORS 协议能力，以适配当前 Chromium。
+protocol.registerSchemesAsPrivileged([{ scheme: 'project-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }]);
 let worker: Electron.UtilityProcess;
 let projectFolder: string | null = null;
 let window: BrowserWindow;
 let quitting = false;
 let allowClose = false;
+function exitApplication(code: number): void {
+  // app.exit 不触发 before-quit；必须先关闭自动重启，避免退出时留下新后台进程或占用安装文件。
+  quitting = true;
+  app.exit(code);
+}
 function runtimeLog(message: string): void {
   // 即使启动终端已关闭，也保留子进程退出原因供下次排查。
   const line = `[${new Date().toISOString()}] ${message}\n`;
@@ -60,7 +67,7 @@ if (smokeMode || e2eRoot || devRoot) {
 }
 if (!app.requestSingleInstanceLock()) {
   if (devRoot) console.error(`[dev] 无法取得桌面实例锁：可能已有窗口在运行，或当前用户无法写入 ${app.getPath('userData')}。请检查任务栏和该目录权限。`);
-  app.exit(smokeMode || e2eRoot || devRoot ? 1 : 0);
+  exitApplication(smokeMode || e2eRoot || devRoot ? 1 : 0);
 }
 else app.whenReady().then(() => {
   // 使用应用内统一导航栏，移除 Electron 默认的 File/Edit 原生菜单，避免语言切换出现双套入口。
@@ -295,9 +302,8 @@ else app.whenReady().then(() => {
       });
       if (!connected) throw Error('画布箭头操作未保存');
       {
-        const vendorRoot = app.isPackaged ? path.join(process.resourcesPath, 'vendor') : path.resolve(__dirname, '../vendor');
-        const ffmpeg = path.join(vendorRoot, 'ffmpeg.exe');
-        const ffprobe = path.join(vendorRoot, 'ffprobe.exe');
+        const ffmpeg = mediaToolPath('ffmpeg');
+        const ffprobe = mediaToolPath('ffprobe');
         if (!existsSync(ffmpeg) || !existsSync(ffprobe)) throw Error('安装包缺少媒体工具');
         const samples: { name: string; kind: string; args?: string[] }[] = [
           { name: 'smoke.wav', kind: 'audio', args: ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'pcm_s16le'] },
@@ -731,7 +737,7 @@ else app.whenReady().then(() => {
       if (moved.recovered || moved.assets.some(asset => asset.status !== 'ready' && asset.status !== 'unsupported')) throw Error('项目文件夹搬移后无法正常打开素材');
       writeFileSync(path.join(root, 'smoke-result.json'), JSON.stringify({ passed: true, at: new Date().toISOString() }));
       console.log('SMOKE_OK home + project roundtrip');
-      app.exit(0);
-    } catch (error) { writeFileSync(path.join(root, 'smoke-result.json'), JSON.stringify({ passed: false, error: String(error) })); console.error('SMOKE_FAILED', error); app.exit(1); }
+      exitApplication(0);
+    } catch (error) { writeFileSync(path.join(root, 'smoke-result.json'), JSON.stringify({ passed: false, error: String(error) })); console.error('SMOKE_FAILED', error); exitApplication(1); }
   });
 });

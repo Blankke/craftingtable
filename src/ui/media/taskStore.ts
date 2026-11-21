@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { MediaAnalysis } from '../canvas/CanvasStage';
+import type { MediaAnalysis } from '../../core/mediaAnalysis';
 
 type AnalysisMap = Record<string, MediaAnalysis>;
 type TaskState = {

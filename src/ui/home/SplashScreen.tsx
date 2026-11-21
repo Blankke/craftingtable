@@ -1,7 +1,7 @@
 // 启动画面：使用原组件指定字体生成的本地路径，离线也能按同样节奏描绘 Hello World。
 // 开屏是 Electron 渲染会话内的一次性状态：创建/打开项目立即结束，之后不再显示。
 import { useEffect, useRef, useState } from 'react';
-import { helloPath, helloViewBox, helloWidth } from './helloPath';
+import { helloPath, helloViewBox, helloWidth, helloHeight } from './helloPath';
 import { useSplashStore } from './splashStore';
 
 export function SplashScreen() {
@@ -45,7 +45,7 @@ export function SplashScreen() {
   }, [visible, dismiss]);
   if (!visible) return null;
   return <div className={`splash${fading ? ' splash-fade' : ''}`} aria-hidden="true">
-    <svg className="splash-svg" width={helloWidth} height="160" viewBox={helloViewBox} role="presentation">
+    <svg className="splash-svg" width={helloWidth} height={helloHeight} viewBox={helloViewBox} role="presentation">
       <path ref={pathRef} className="splash-title" d={helloPath} fill="none" stroke="#f43f5e" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   </div>;
