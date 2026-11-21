@@ -5,3 +5,18 @@ License: GNU GPL version 3. See LICENSE in this directory.
 Build details and third-party libraries: See README.txt in this directory.
 
 The application invokes ffmpeg and ffprobe as separate processes for local media analysis.
+
+Halaska Studio Segmented Control
+Reference: https://21st.dev/@halaska-studio/components/segmented-control
+Source: https://github.com/Halaska-Studio/ui/blob/e5bc59420da30f11d5db35b075f5d91e82129902/halaska-kit/halaska-kit-v1.0.jsx
+Copyright (c) 2026 Halaska Studio. MIT License; see Halaska-MIT.txt.
+Adapted to the workbench theme, Lucide icons, measured layout and keyboard navigation.
+
+Origin UI tabs (with-line)
+Reference: https://21st.dev/@originui/components/tabs/with-line
+Copyright (c) 2025 coss.com and Origin UI
+License: MIT. See OriginUI-MIT.txt in this directory.
+
+ThemeToggle 日月图标和运动参考：DHxWhy/CCgather components/ui/theme-switcher.tsx。
+来源：https://github.com/DHxWhy/CCgather；Copyright 2026 CCgather (DHxWhy)。
+Apache-2.0 授权全文见 CCgather-Apache-2.0.txt。本项目改为主题存储驱动的 1740ms 可逆过渡与天空交叉淡化。

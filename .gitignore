@@ -7,4 +7,5 @@ release/
 .runtime/
 *.log
 .env
+.env.*
 vendor/*.exe

@@ -68,9 +68,9 @@ test('拖放、图片比例和标记笔记形成可撤销的操作', async () =>
     const asset = page.locator('.asset').filter({ hasText: 'sample.png' }); await asset.scrollIntoViewIfNeeded();
     const assetBox = await asset.boundingBox();
     await page.mouse.move(assetBox!.x + 30, assetBox!.y + 20); await page.mouse.down(); await page.mouse.move(400, 300, { steps: 10 });
-    await expect(page.locator('.drop-ghost')).toBeVisible();
+    await expect(page.locator('.canvas')).toHaveAttribute('data-placement-preview', 'image');
     await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.mouse.up();
-    await expect(page.locator('.drop-ghost')).toHaveCount(0); expect((await saved()).objects).toHaveLength(2);
+    await expect(page.locator('.canvas')).not.toHaveAttribute('data-placement-preview', /.+/); expect((await saved()).objects).toHaveLength(2);
     // 轨道先选择、M 打标、单击标记，再从独立连接柄拖出笔记。
     const track = point(media.x + 20, media.y + 45); await page.mouse.click(track.x, track.y);
     // 仅拖动波形不会创建标记和笔记。

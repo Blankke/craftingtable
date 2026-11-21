@@ -6,13 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 const electronExecutable = createRequire(import.meta.url)('electron') as string;
+const electronArgs = process.env.WORKBENCH_DEVICE_SCALE_FACTOR ? [`--force-device-scale-factor=${process.env.WORKBENCH_DEVICE_SCALE_FACTOR}`, '.'] : ['.'];
 
 test('开屏 Hello World、笔记/画布来回切换与分栏', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'workbench-mode-'));
   let app: ElectronApplication | undefined;
   try {
     const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
-    app = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env });
+    app = await _electron.launch({ executablePath: electronExecutable, args: electronArgs, env });
     const page = await app.firstWindow();
     // 开屏以本地 Indie Flower 72px 路径描绘 Hello World。
     await expect(page.locator('.splash path')).toBeVisible();
@@ -26,47 +27,61 @@ test('开屏 Hello World、笔记/画布来回切换与分栏', async () => {
     // 创建项目立即结束开屏，进入画布默认模式。
     await expect(page.locator('.canvas')).toBeVisible();
     await expect(page.locator('.splash')).toHaveCount(0);
-    const canvasButton = page.locator('.mode-switch-btn').filter({ hasText: '画布' });
-    const notesButton = page.locator('.mode-switch-btn').filter({ hasText: '笔记' });
-    await expect(canvasButton).toHaveAttribute('aria-pressed', 'true');
-    // 首次进入笔记自动创建一篇，选中层与小球停在笔记项两端。
+    // 太阳/月亮按钮独立于主题方案入口，首页与工作台都能切换全局明暗模式。
+    const themeToggle = page.locator('.theme-toggle');
+    await expect(themeToggle).toHaveAttribute('aria-pressed', 'false');
+    await themeToggle.click();
+    await expect(themeToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', /-dark$/);
+    await themeToggle.click();
+    await expect(themeToggle).toHaveAttribute('aria-pressed', 'false');
+    const control = page.getByRole('radiogroup', { name: '工作台模式' });
+    const canvasButton = control.getByRole('radio', { name: '画布', exact: true });
+    const notesButton = control.getByRole('radio', { name: '笔记', exact: true });
+    await expect(canvasButton).toBeChecked();
+    // 首次进入笔记自动创建一篇，单选状态与实际工作区保持一致。
     await notesButton.click();
-    await expect(notesButton).toHaveAttribute('aria-pressed', 'true');
-    await expect(canvasButton).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator('.note-tiptap .ProseMirror')).toBeVisible();
-    const ball = page.locator('.mode-switch-ball');
-    const thumb = page.locator('.mode-switch-thumb');
-    const face = page.locator('.mode-switch-ball-face');
-    await expect(page.locator('.mode-switch')).toHaveClass(/is-notes/);
-    await expect.poll(async () => {
-      const ballBox = await ball.boundingBox();
-      const thumbBox = await thumb.boundingBox();
-      return ballBox && thumbBox ? Math.round(thumbBox.x + thumbBox.width - ballBox.x - ballBox.width) : null;
-    }).toBe(5);
-    await expect(face).toHaveAttribute('style', /rotate\(-360deg\)/);
-    // 来回切换两次，两端 aria-pressed 与小球位置正确，笔记内容恢复且不重现开屏。
+    await expect(notesButton).toBeChecked();
+    await expect(canvasButton).not.toBeChecked();
+    const body = page.locator('.note-tiptap .ProseMirror');
+    await body.fill('切换模式后保留这段策划笔记。');
+    const indicator = control.locator('.mode-switch-indicator');
+    const aligned = async () => {
+      await expect.poll(async () => {
+        const selected = await control.locator('[aria-checked=true]').boundingBox();
+        const highlight = await indicator.boundingBox();
+        return selected && highlight ? Math.max(Math.abs(selected.x - highlight.x), Math.abs(selected.width - highlight.width)) : Infinity;
+      }).toBeLessThan(1);
+    };
+    await aligned();
+    // 鼠标切换后底板跟随真实按钮，正文恢复且不重现开屏。
     for (let round = 0; round < 2; round++) {
       await canvasButton.click();
-      await expect(canvasButton).toHaveAttribute('aria-pressed', 'true');
+      await expect(canvasButton).toBeChecked();
       await expect(page.locator('.canvas')).toBeVisible();
-      await expect(page.locator('.mode-switch')).toHaveClass(/is-canvas/);
-      await expect.poll(async () => {
-        const ballBox = await ball.boundingBox();
-        const thumbBox = await thumb.boundingBox();
-        return ballBox && thumbBox ? Math.round(ballBox.x - thumbBox.x) : null;
-      }).toBeGreaterThanOrEqual(4);
-      await expect(face).toHaveAttribute('style', /rotate\(0deg\)/);
+      await aligned();
       await notesButton.click();
-      await expect(notesButton).toHaveAttribute('aria-pressed', 'true');
-      await expect(page.locator('.note-tiptap .ProseMirror')).toBeVisible();
-      await expect(page.locator('.mode-switch')).toHaveClass(/is-notes/);
-      await expect.poll(async () => {
-        const ballBox = await ball.boundingBox();
-        const thumbBox = await thumb.boundingBox();
-        return ballBox && thumbBox ? Math.round(thumbBox.x + thumbBox.width - ballBox.x - ballBox.width) : null;
-      }).toBe(5);
-      await expect(face).toHaveAttribute('style', /rotate\(-360deg\)/);
+      await expect(notesButton).toBeChecked();
+      await expect(body).toHaveText('切换模式后保留这段策划笔记。');
+      await aligned();
     }
+    // 单个 Tab 入口；方向键及 Home/End 同步移动焦点、模式和选中状态。
+    await notesButton.focus();
+    await expect(notesButton).toHaveAttribute('tabindex', '0');
+    await expect(canvasButton).toHaveAttribute('tabindex', '-1');
+    await page.keyboard.press('ArrowRight');
+    await expect(canvasButton).toBeChecked(); await expect(canvasButton).toBeFocused();
+    await expect(page.locator('.canvas')).toBeVisible();
+    await aligned();
+    await page.keyboard.press('Home');
+    await expect(notesButton).toBeChecked(); await expect(notesButton).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(canvasButton).toBeChecked();
+    await page.keyboard.press('ArrowRight');
+    await expect(notesButton).toBeChecked();
+    await page.keyboard.press('Space');
+    await expect(notesButton).toBeChecked();
+    await expect(body).toHaveText('切换模式后保留这段策划笔记。');
     await expect(page.locator('.splash')).toHaveCount(0);
     // 三块面板间存在水平分隔线，键盘方向键可调整相邻两块。
     await canvasButton.click();
@@ -91,7 +106,7 @@ test('颜色弹层、图形轮廓与箭头头部预览', async () => {
   let app: ElectronApplication | undefined;
   try {
     const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
-    app = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env });
+    app = await _electron.launch({ executablePath: electronExecutable, args: electronArgs, env });
     const page = await app.firstWindow();
     await page.locator('.plus').click();
     await page.getByRole('button', { name: '新建项目' }).click();

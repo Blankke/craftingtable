@@ -1,7 +1,7 @@
-// Pantone 年度代表色库（2000–2025）。数据来源：Pantone 潘通中国官网 pantonecn.com/articles/color-of-the-year。
+// Pantone 年度代表色库（2000–2026）。数据来源：Pantone 潘通中国官网 pantonecn.com/articles/color-of-the-year。
 // hex 为 sRGB 近似换算（非官方屏幕值），用于界面取色；Pantone 色号为官方编号。
 // 2016（Rose Quartz + Serenity）与 2021（Ultimate Gray + Illuminating）为双年度色，全部收录。
-// 如后续年份（2026 起）发布，按对象结构追加即可。
+// 2026 年度色来源：https://www.pantone.com/color-of-the-year/2026；后续按对象结构追加。
 export interface PantoneColor {
   year: number;
   name: string;       // 中文名
@@ -39,5 +39,6 @@ export const pantoneColors: PantoneColor[] = [
   { year: 2022, name: '长春花蓝', nameEn: 'Very Peri', pantone: '17-3938', hex: '#6667AB', approx: true },
   { year: 2023, name: '洋红万岁', nameEn: 'Viva Magenta', pantone: '18-1750', hex: '#BB2649', approx: true },
   { year: 2024, name: '柔和桃', nameEn: 'Peach Fuzz', pantone: '13-1023', hex: '#FFBE98', approx: true },
-  { year: 2025, name: '摩卡慕斯', nameEn: 'Mocha Mousse', pantone: '17-1230', hex: '#A47864', approx: true }
+  { year: 2025, name: '摩卡慕斯', nameEn: 'Mocha Mousse', pantone: '17-1230', hex: '#A47864', approx: true },
+  { year: 2026, name: '云上舞白', nameEn: 'Cloud Dancer', pantone: '11-4201', hex: '#F0EEE9', approx: true }
 ];

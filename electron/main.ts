@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, utilityProcess, Menu } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync, realpathSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
+import { writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 import { readProjectsRoot, saveProjectsRoot } from './projectSettings';
@@ -62,6 +63,8 @@ if (!app.requestSingleInstanceLock()) {
   app.exit(smokeMode || e2eRoot || devRoot ? 1 : 0);
 }
 else app.whenReady().then(() => {
+  // 使用应用内统一导航栏，移除 Electron 默认的 File/Edit 原生菜单，避免语言切换出现双套入口。
+  Menu.setApplicationMenu(null);
   runtimeLog('应用就绪');
   app.on('before-quit', () => { quitting = true; });
   app.on('child-process-gone', (_event, details) => runtimeLog(`子进程退出：${details.type} ${details.reason} ${details.exitCode}`));
@@ -70,7 +73,7 @@ else app.whenReady().then(() => {
   startWorker();
   const smoke = smokeMode;
   const settingsFile = path.join(app.getPath('userData'), 'settings.json');
-  const defaultRoot = e2eRoot ? path.join(e2eRoot, 'projects') : smoke ? path.join(app.getPath('temp'), 'media-workbench-smoke') : devDirectories ? devDirectories.projects : path.join(app.getPath('documents'), '音视频创作策划工作台');
+  const defaultRoot = e2eRoot ? path.join(e2eRoot, 'projects') : smoke ? path.join(app.getPath('temp'), 'media-workbench-smoke') : devDirectories ? devDirectories.projects : path.join(app.getPath('documents'), '工作台');
   let root = e2eRoot || smoke ? defaultRoot : readProjectsRoot(settingsFile, defaultRoot);
   ipcMain.handle('settings:get', () => ({ projectsRoot: root }));
   ipcMain.handle('settings:choose-projects-root', async () => {
@@ -114,6 +117,15 @@ else app.whenReady().then(() => {
     } catch { return new Response('Not found', { status: 404 }); }
   });
   ipcMain.handle('projects:list', () => call({ method: 'list', root }));
+  ipcMain.handle('notes:export', async (event, input: unknown) => {
+    if (event.sender !== window.webContents || !projectFolder) throw Error('请先打开项目');
+    const { name, markdown } = z.object({ name: z.string().max(255), markdown: z.string().max(10_000_000) }).parse(input);
+    // 只允许写入用户通过系统对话框选择的位置，渲染器不能传入任意路径。
+    const target = await dialog.showSaveDialog(window, { title: '导出 Markdown', defaultPath: `${name.replace(/[\\/:*?"<>|]/g, '_') || 'note'}.md`, filters: [{ name: 'Markdown', extensions: ['md'] }] });
+    if (target.canceled || !target.filePath) return false;
+    await writeFile(target.filePath, markdown, 'utf8');
+    return true;
+  });
   ipcMain.handle('projects:create', async (_event, name: unknown) => {
     const folder = await call({ method: 'create', root, name: z.string().min(1).parse(name) }); projectFolder = String(folder); return folder;
   });
@@ -135,6 +147,11 @@ else app.whenReady().then(() => {
     const selected = managedProjectFolder(folder);
     const error = await shell.openPath(selected);
     if (error) throw Error(error);
+  });
+  ipcMain.handle('projects:rename', (_event, folder: unknown, name: unknown) => {
+    const selected = managedProjectFolder(folder);
+    if (projectFolder && path.resolve(projectFolder) === selected) throw Error('请返回项目页后重命名');
+    return call({ method: 'rename', folder: selected, name: z.string().trim().min(1).max(100).parse(name) });
   });
   ipcMain.handle('projects:delete', (_event, folder: unknown) => {
     const selected = managedProjectFolder(folder);
@@ -169,9 +186,18 @@ else app.whenReady().then(() => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw Error('无效的导入来源');
     return importPaths(z.array(z.string().min(1).refine(value => path.isAbsolute(value))).min(1).max(100).parse(sources));
   });
+  ipcMain.handle('assets:paste-image', (event, input: unknown) => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !projectFolder) throw Error('无效的导入来源');
+    const data = z.object({ name: z.string().max(255), bytes: z.instanceof(Uint8Array).refine(bytes => bytes.length > 0 && bytes.length <= 50 * 1024 * 1024) }).parse(input);
+    return call({ method: 'importImage', folder: projectFolder, ...data });
+  });
   ipcMain.handle('assets:import', async () => {
     const selected = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'] });
     return selected.canceled ? { assets: [], errors: [] } : importPaths(selected.filePaths);
+  });
+  ipcMain.handle('assets:remove', (_event, assetPath: unknown) => {
+    if (!projectFolder) throw Error('未打开项目');
+    return call({ method: 'removeAsset', folder: projectFolder, assetPath: z.string().min(1).parse(assetPath) });
   });
   ipcMain.handle('assets:relink', async (_event, kind: unknown) => {
     if (!projectFolder) throw Error('未打开项目');
@@ -234,7 +260,7 @@ else app.whenReady().then(() => {
         const until = async predicate => { for (let attempt = 0; attempt < 100; attempt++) {
           const value = await predicate(); if (value) return value;
           await new Promise(resolve => setTimeout(resolve, 50));
-        } throw Error('界面等待超时'); };
+        } throw Error('界面等待超时：' + String(predicate).slice(0, 180)); };
         document.querySelector('.plus').click();
         (await until(() => document.querySelector('.home-menu button'))).click();
         const projectName = await until(() => document.querySelector('#project-name'));
@@ -251,7 +277,7 @@ else app.whenReady().then(() => {
         return { ready, persisted: reopened.objects[0].kind === 'rectangle', folder, name };
       })()`);
       if (!result.ready || !result.persisted) throw Error('首页或项目读写失败');
-      await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(button => button.textContent === '箭头').click()`);
+      await window.webContents.executeJavaScript(`document.querySelector('button[aria-label=箭头]').click()`);
         await new Promise(resolve => setTimeout(resolve, 80));
         await window.webContents.capturePage();
       window.webContents.sendInputEvent({ type: 'mouseDown', x: 120, y: 170, button: 'left', clickCount: 1 });
@@ -404,7 +430,7 @@ else app.whenReady().then(() => {
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 120, y: 310, button: 'left', clickCount: 1 });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 120, y: 310, button: 'left', clickCount: 1 });
         await new Promise(resolve => setTimeout(resolve, 150));
-        await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(button => button.textContent === '箭头').click()`);
+        await window.webContents.executeJavaScript(`document.querySelector('button[aria-label=箭头]').click()`);
         await new Promise(resolve => setTimeout(resolve, 80));
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 120, y: 310, button: 'left', clickCount: 1 });
@@ -428,7 +454,7 @@ else app.whenReady().then(() => {
           if (attempt === 39) throw Error('箭头撤销后关系未恢复');
           await new Promise(resolve => setTimeout(resolve, 100));
         }
-        await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(button => button.textContent === '箭头').click()`);
+        await window.webContents.executeJavaScript(`document.querySelector('button[aria-label=箭头]').click()`);
         await new Promise(resolve => setTimeout(resolve, 80));
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 520, y: 510, button: 'left', clickCount: 1 });
@@ -569,11 +595,19 @@ else app.whenReady().then(() => {
         if (!dragResult) throw Error('文字素材拖放入口缺失');
         // 内部放置统一使用 Pointer Events，模拟真实鼠标而不保留旧 HTML 拖放协议。
         const dragIntoCanvas = async (selector: string, label: string, x: number, y: number) => {
-          const origin = await window.webContents.executeJavaScript(`(() => {
-            const element = [...document.querySelectorAll(${JSON.stringify(selector)})].find(item => item.textContent.includes(${JSON.stringify(label)}));
-            element.scrollIntoView({ block: 'center' }); const box = element.getBoundingClientRect(); return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
-          })()`) as { x: number; y: number };
+          // 隐藏窗口先完成绘制及 ResizeObserver 分栏布局，再滚动和测量鼠标起点。
           await window.webContents.capturePage();
+          const origin = await window.webContents.executeJavaScript(`(async () => {
+            const element = [...document.querySelectorAll(${JSON.stringify(selector)})].find(item => item.textContent.includes(${JSON.stringify(label)}));
+            await new Promise(requestAnimationFrame);
+            await new Promise(requestAnimationFrame);
+            element.scrollIntoView({ block: 'center', behavior: 'instant' });
+            await new Promise(requestAnimationFrame);
+            const box = element.getBoundingClientRect();
+            const point = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+            if (!element.contains(document.elementFromPoint(point.x, point.y))) throw Error('拖动入口被遮挡：' + ${JSON.stringify(label)});
+            return point;
+          })()`) as { x: number; y: number };
           window.webContents.sendInputEvent({ type: 'mouseMove', ...origin });
           window.webContents.sendInputEvent({ type: 'mouseDown', ...origin, button: 'left', clickCount: 1 });
           await new Promise(resolve => setTimeout(resolve, 80));
@@ -584,18 +618,19 @@ else app.whenReady().then(() => {
         await dragIntoCanvas('.asset', 'note.txt', 650, 550);
         await dragIntoCanvas('.tool-grid button', '矩形', 700, 600);
 
+        const canvasOrigin = await window.webContents.executeJavaScript(`(() => { const box = document.querySelector('.canvas').getBoundingClientRect(); return { x: box.x, y: box.y }; })()`) as { x: number; y: number };
         const dropped = await new Promise<boolean>(resolve => {
           let attempts = 0;
           const inspect = async () => {
             const snapshot = await call({ method: 'open', folder: result.folder }) as { objects: { kind: string; text?: string; x: number; y: number }[] };
-            if (snapshot.objects.some(item => item.kind === 'text' && item.text === '纯文本素材' && Math.abs(item.x - 650) < 2 && Math.abs(item.y - 490) < 2) && snapshot.objects.some(item => item.kind === 'rectangle' && Math.abs(item.x - 700) < 2 && Math.abs(item.y - 540) < 2)) resolve(true);
+            if (snapshot.objects.some(item => item.kind === 'text' && item.text === '纯文本素材' && Math.abs(item.x - (650 - canvasOrigin.x)) < 2 && Math.abs(item.y - (550 - canvasOrigin.y)) < 2) && snapshot.objects.some(item => item.kind === 'rectangle' && Math.abs(item.x - (700 - canvasOrigin.x)) < 2 && Math.abs(item.y - (600 - canvasOrigin.y)) < 2)) resolve(true);
             else if (++attempts >= 50) resolve(false);
             else setTimeout(inspect, 100);
           };
           void inspect();
         });
         if (!dropped) throw Error('文字素材拖放后未按位置保存');
-        await window.webContents.executeJavaScript(`(async () => { [...document.querySelectorAll('.tool-grid button')].find(item => item.textContent === '箭头').click(); let select; for (let i = 0; i < 30; i++) { select = document.querySelector('[aria-label=箭头路径]'); if (select) break; await new Promise(resolve => setTimeout(resolve, 30)); } if (!select) throw Error('箭头路径控件缺失'); select.value = 'elbow'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await window.webContents.executeJavaScript(`(async () => { document.querySelector('button[aria-label=箭头]').click(); let select; for (let i = 0; i < 30; i++) { select = document.querySelector('[aria-label=箭头路径]'); if (select) break; await new Promise(resolve => setTimeout(resolve, 30)); } if (!select) throw Error('箭头路径控件缺失'); select.value = 'elbow'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 300, y: 520, button: 'left', clickCount: 1 });
         window.webContents.sendInputEvent({ type: 'mouseMove', x: 440, y: 550, modifiers: ['leftButtonDown'] });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 440, y: 550, button: 'left', clickCount: 1 });

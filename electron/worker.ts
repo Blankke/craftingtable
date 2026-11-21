@@ -16,8 +16,11 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('list'), root: z.string() }),
   z.object({ method: z.literal('create'), root: z.string(), name: z.string().min(1) }),
   z.object({ method: z.literal('open'), folder: z.string() }),
+  z.object({ method: z.literal('rename'), folder: z.string(), name: z.string().trim().min(1).max(100) }),
   z.object({ method: z.literal('save'), folder: z.string(), document: documentSchema }),
   z.object({ method: z.literal('import'), folder: z.string(), source: z.string() }),
+  z.object({ method: z.literal('importImage'), folder: z.string(), name: z.string().max(255), bytes: z.instanceof(Uint8Array).refine(bytes => bytes.length > 0 && bytes.length <= 50 * 1024 * 1024) }),
+  z.object({ method: z.literal('removeAsset'), folder: z.string(), assetPath: z.string().min(1) }),
   z.object({ method: z.literal('relink'), folder: z.string(), source: z.string(), expectedKind: z.enum(['video', 'audio', 'image', 'text']) }),
   z.object({ method: z.literal('createText'), folder: z.string(), name: z.string().trim().min(1).max(100), content: z.string().max(2_000_000) }),
   z.object({ method: z.literal('analyze'), folder: z.string(), assetId: z.string().uuid(), assetPath: z.string(), kind: z.enum(['audio', 'video']), inUs: z.number().int().nonnegative(), outUs: z.number().int().positive(), pixelsPerSecond: z.number().positive(), taskId: z.string().uuid().optional() }),
@@ -296,6 +299,13 @@ async function handle(raw: unknown): Promise<unknown> {
     }));
     return { ...document, recovered, migrated };
   }
+  if (request.method === 'rename') {
+    // 名称属于项目文档；保持目录与素材引用稳定，并沿用原子保存和恢复快照。
+    const { document } = readProjectDocument(JSON.parse(await readFile(path.join(request.folder, 'project.json'), 'utf8')));
+    document.name = request.name;
+    document.revision = Math.max(document.revision, latestRevision.get(request.folder) ?? 0) + 1;
+    return handle({ method: 'save', folder: request.folder, document });
+  }
   if (request.method === 'save') {
     const file = path.join(request.folder, 'project.json');
     const revision = latestRevision.get(request.folder) ?? -1;
@@ -322,12 +332,39 @@ async function handle(raw: unknown): Promise<unknown> {
     } finally { taskControllers.delete(taskId); }
   }
   if (request.method === 'cancel') { const controller = taskControllers.get(request.taskId); controller?.abort(); return { cancelled: !!controller }; }
+  if (request.method === 'removeAsset') {
+    const normalized = request.assetPath.replaceAll('\\', '/');
+    if (!normalized.startsWith('assets/') || path.isAbsolute(request.assetPath)) throw Error('素材路径无效');
+    const projectRoot = await realpath(request.folder);
+    const assetsRoot = await realpath(path.join(request.folder, 'assets'));
+    const candidate = path.resolve(projectRoot, normalized);
+    if (!insideDirectory(projectRoot, assetsRoot) || !insideDirectory(assetsRoot, candidate)) throw Error('素材路径无效');
+    const info = await stat(candidate).catch(() => null);
+    if (info && !info.isFile()) throw Error('素材路径无效');
+    await rm(candidate, { force: true });
+    return { removed: true };
+  }
   if (request.method === 'createText') {
     const fileName = `${crypto.randomUUID()}.txt`;
     const relative = `assets/${fileName}`;
     await mkdir(path.join(request.folder, 'assets'), { recursive: true });
     await durableWrite(path.join(request.folder, relative), request.content);
     return { id: crypto.randomUUID(), name: request.name.endsWith('.txt') ? request.name : `${request.name}.txt`, path: relative, kind: 'text', content: request.content, status: 'ready' };
+  }
+  if (request.method === 'importImage') {
+    const bytes = Buffer.from(request.bytes);
+    // 使用文件签名确定扩展名，不信任剪贴板提供的名称和 MIME。
+    const signature = bytes.subarray(0, 12).toString('hex');
+    const extension = signature.startsWith('89504e470d0a1a0a') ? '.png'
+      : signature.startsWith('ffd8ff') ? '.jpg'
+      : signature.startsWith('474946383761') || signature.startsWith('474946383961') ? '.gif'
+      : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' ? '.webp' : null;
+    if (!extension) throw Error('不支持的剪贴板图片格式');
+    const id = crypto.randomUUID();
+    const relative = `assets/${id}${extension}`;
+    await mkdir(path.join(request.folder, 'assets'), { recursive: true });
+    await writeFile(path.join(request.folder, relative), bytes, { flag: 'wx' });
+    return { id, name: `${path.parse(request.name || '粘贴图片').name}${extension}`, path: relative, kind: 'image', status: 'ready' };
   }
   const source = request.source;
   const originalName = path.basename(source);
@@ -352,7 +389,7 @@ port.on('message', async (message: { data: { id: string; request: unknown } }) =
   const { id, request } = message.data;
   try {
     const parsed = requestSchema.parse(request);
-    if (parsed.method === 'save') {
+    if (parsed.method === 'save' || parsed.method === 'rename') {
       // 同一项目保存串行化，修订号在写入时检查。
       const previous = saveQueues.get(parsed.folder) ?? Promise.resolve();
       const next = previous.catch(() => undefined).then(() => handle(parsed));

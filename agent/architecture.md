@@ -1,6 +1,6 @@
 # 项目作用与结构
 
-音视频创作策划工作台面向个人创作者，在同一画布上组织图片、文字、音频和视频，进行时间标记、裁剪、注释、连线与策划。产品只提供 Electron 桌面应用，优先支持 Windows 离线使用。
+工作台面向个人创作者，在同一画布上组织图片、文字、音频和视频，进行时间标记、裁剪、注释、连线与策划。产品只提供 Electron 桌面应用，优先支持 Windows 离线使用。
 
 ## 运行路径
 
@@ -10,31 +10,40 @@
 
 ## 目录职责
 
-- `src/core/`：项目文档模型、校验、编辑命令、自动保存和时间刻度；文档是编辑器的单一事实来源。
-- `src/ui/`：React 界面、画布、素材库、播放控件、任务状态、语言与设置面板。
-- `src/ui/WorkspaceDock.tsx`、`src/ui/dockLayout.ts`：图标视图栏、侧栏宽度拖拽与受控网格分栏；可见面板之间插入水平分隔线，拖动只调整相邻两块，侧栏宽度与三块面板高度写入用户 localStorage 并统一归一化。画布通过 ResizeObserver 跟随可用空间。
-- `src/ui/WorkspaceModeSwitch.tsx`：受控的笔记/画布模式切换器，固定尺寸的灰色选区与笑脸小球；`App` 显式持有模式，不再用 `noteId` 隐式判断。
-- `src/core/appearance.ts`、`src/core/shapeGeometry.ts`、`src/ui/ObjectAppearance.tsx`、`src/ui/ObjectInspector.tsx`：统一处理图形样式、文字、尺寸及图片裁剪；`shapeGeometry.ts` 是固定图库的单一几何来源，画布、工具图标和首页预览均复用它。
-- `src/core/waveform.ts`：单声道 PCM 峰值聚合、带版本头的二进制缓存编解码与按像素重采样，后台 worker 与渲染端共用；删除固定 PNG 波形方案。
-- `src/core/theme.ts`、`src/ui/themeStore.ts`、`src/ui/ThemePicker.tsx`：主题 Token（以 oklch 为权威值，含明暗两套）、颜色换算（oklch↔sRGB）、主题持久化与选择界面；`useTheme()` 提供当前 Token，CSS 变量由 `applyCssVars` 注入。设置面板中的“强制播放动画”也由主题存储持久化，并以根节点属性覆盖系统的减少动态效果偏好。
-- `src/core/elementStyles.ts`、`src/core/pantone.ts`、`src/ui/ColorEditor.tsx`、`src/ui/ConnectionInspector.tsx`、`src/ui/ShapeIcon.tsx`：元素样式预设、箭头线型/头部样式、Pantone 年度色库、统一颜色弹层（主题色/Pantone/自定义）、连接线样式编辑与工具区无填充描边轮廓预览。
+- `src/core/`：项目文档模型、校验、编辑命令、自动保存和时间刻度；文档是编辑器的单一事实来源。自动保存保留载入修订号，并在订阅建立时检查当前快照，覆盖首帧快速操作。
+- `src/ui/`：`App.tsx` 编排应用；`home/`、`notes/`、`canvas/`、`media/`、`theme/`、`workspace/` 分别组织首页、笔记、画布、媒体、主题和分栏；共用控件、语言与设置放在 `shared/`，全局样式放在 `styles/`。测试与模块就近放置，避免平铺或重复入口。
+- `src/types/`：第三方 Markdown 插件的补充类型声明；Vite 环境和桌面桥接声明保留在 `src/vite-env.d.ts`。
+- `src/ui/workspace/WorkspaceDock.tsx`、`src/ui/workspace/dockLayout.ts`：顶部视图开关、侧栏收起、面板展开/还原与分栏；每块面板由固定标题和独立滚动内容组成。侧栏宽度与三块面板高度写入 localStorage；高度分配先满足最小值，再按比例分配剩余空间，拖动只调整相邻两块。画布 ResizeObserver 在切换模式后重新订阅可用空间。
+- `src/ui/shared/EditorControls.tsx`：共用图标按钮和分隔拖柄，支持 Pointer Capture、方向键、Shift 加速、Home/End、宽度双击复位、Esc/失焦取消；拖动结束与卸载时恢复鼠标和选区样式。
+- `src/ui/styles/workspace.css`：笔记与画布面板的实色表面、分栏、边界和响应式布局。玻璃材质只用于首页文件夹；线性图标统一使用 Lucide，下划线标签按 21st / Origin UI with-line 的几何和状态适配，授权保存在 `vendor/OriginUI-MIT.txt`。
+- `src/ui/workspace/WorkspaceModeSwitch.tsx`：基于 21st / Halaska Segmented Control 的笔记/画布单选切换器，以图标文字和独立底板表达模式；ResizeObserver 根据按钮真实尺寸定位底板，鼠标切换使用 350ms 过渡，键盘即时切换。方向键、Home/End 与单个 Tab 入口遵循 radiogroup 语义，主题和减少动态效果使用项目统一设置；`App` 显式持有模式。
+- `src/core/appearance.ts`、`src/core/shapeGeometry.ts`、`src/ui/canvas/ObjectAppearance.tsx`、`src/ui/canvas/ObjectInspector.tsx`：统一处理图形样式、文字、尺寸及图片裁剪；`shapeGeometry.ts` 是固定图库的单一几何来源，画布、工具图标和首页预览均复用它。
+- `src/core/waveform.ts`：单声道 PCM 峰值聚合、带版本头的二进制缓存编解码与按屏幕像素重采样（包含相机缩放与设备像素比），后台 worker 与渲染端共用；删除固定 PNG 波形方案。
+- `src/core/theme.ts`、`src/ui/theme/themeStore.ts`、`src/ui/theme/ThemePicker.tsx`：主题 Token（以 oklch 为权威值，含明暗两套）、颜色换算（oklch↔sRGB）、主题持久化与选择界面；`useTheme()` 提供当前 Token，CSS 变量由 `applyCssVars` 注入。设置面板中的“强制播放动画”也由主题存储持久化，并以根节点属性覆盖系统的减少动态效果偏好。
+- `src/core/elementStyles.ts`、`src/core/pantone.ts`、`src/ui/theme/ColorEditor.tsx`、`src/ui/canvas/ConnectionInspector.tsx`、`src/ui/canvas/ShapeIcon.tsx`：元素样式预设、箭头线型/头部样式、Pantone 年度色库、统一颜色弹层（主题色/Pantone/自定义）、连接线样式编辑与工具区无填充描边轮廓预览。
 - 图库按 General、Basic、Arrows、Flowchart 四类组织，可折叠和搜索；固定的图形标识、工具预览、画布和首页预览复用 `shapeGeometry.ts` 的几何定义，避免预览退化为方块。
-- `src/core/note.ts`、`src/ui/NoteEditor.tsx`、`src/ui/SplashScreen.tsx`、`src/ui/splashStore.ts`、`src/ui/GlassFolderCard.tsx`：笔记的单一 Tiptap JSON 正文、稳定批注 mark、textStyle 字体/字号 mark 与 BubbleMenu 浮动菜单、项目素材图片节点、笔记编辑器、一次性手写启动画面与玻璃文件夹项目卡片。
-- Hello 路径由 `scripts/generate-hello-path.mjs` 从本地 Indie Flower 字体生成，构建和桌面开发入口会自动重建 `src/ui/helloPath.ts`。字体及 OFL 授权保存在 `src/assets/fonts/`；文件夹原版组件保存在 `src/ui/vendor/GlassFolderOriginal.tsx`，项目入口由 `GlassFolderCard` 包装。
-- 笔记正文组件按需加载，单个 Tiptap 编辑器管理跨段选区、中文组合输入、粘贴与撤销；图片节点引用项目素材，外部图片粘贴或拖入经受限 IPC 导入后插入光标位置，可调整宽度与左右对齐。批注用稳定 ID mark 锚定，可跨段复用；右侧卡片按实际文字位置避让并以虚线正交连线，滚动、编辑、缩放和版心变化后会重算。引用原文删除后保留批注并标记失效。笔记复制会同步生成独立批注 ID；多个画布缩略图仍可指向同一笔记，双击以阅读模式打开。
-- `src/ui/mediaSource.ts`：把项目相对路径映射到 Electron 受限媒体协议；项目读写通过 preload 暴露的受限 API 调用。
+- `src/core/note.ts`、`src/ui/notes/NoteEditor.tsx`：单一 Tiptap JSON 正文、稳定批注 mark、textStyle 字体/字号、BubbleMenu、项目图片节点；语义标题、列表、待办、表格、链接和文本格式由 Tiptap 扩展实现，`noteMarkdown.ts` 统一生成阅读 HTML、字符位置映射和保留源语法的 Markdown；Markdown-it 承担语义解析，KaTeX 与 highlight.js 处理公式和代码。导出经 `notes:export` IPC 与系统另存为对话框写盘。
+- `src/ui/notes/NotesWorkspace.tsx`：笔记导航、标题/正文搜索、收藏、多标签、新建/复制/删除及可调整导航宽度。收藏与导航宽度是本机偏好，正文仍写入项目；显示宽度和拖柄上限按可用空间同步限幅。
+- `src/ui/notes/NoteSearch.ts`：跨格式文字查找与 ProseMirror 装饰，匹配索引对应原始 Unicode 文本。替换通过单次事务完成并隔开撤销历史；查找高亮不写入正文。
+- `src/ui/home/SplashScreen.tsx`、`src/ui/home/splashStore.ts`、`src/ui/home/GlassFolderCard.tsx`：一次性手写启动画面与玻璃文件夹项目卡片。
+- Hello 路径由 `scripts/build/generate-hello-path.mjs` 从本地 Indie Flower 字体生成，构建和桌面开发入口会自动重建 `src/ui/home/helloPath.ts`。字体及 OFL 授权保存在 `src/assets/fonts/`；文件夹原版组件保存在 `src/ui/home/vendor/GlassFolderOriginal.tsx`，项目入口由 `GlassFolderCard` 包装。
+- 笔记正文组件按需加载，单个 Tiptap 编辑器管理跨段选区、中文组合输入、粘贴与撤销；选择、粘贴或拖入的图片经受限 IPC 导入后插入光标位置，支持尺寸与对齐。图片工具条锚定真实图片，并跟随滚动/尺寸/对齐更新，限制在正文边界内。批注通过稳定 ID mark 锚定，辅助栏按列表呈现，点击定位原文；引用删除后保留批注并标记失效，删除批注同步清除正文 mark。复制笔记生成独立批注 ID；画布缩略图共享正文，双击以阅读模式打开。外部正文先用当前 schema 规范化再比较，菜单布局事务不触发 React 正文重绘；焦点离开正文及浮动菜单时关闭菜单，避免选区恢复和层级遮挡问题。
+- `src/ui/media/mediaSource.ts`：把项目相对路径映射到 Electron 受限媒体协议；项目读写通过 preload 暴露的受限 API 调用。
 - `electron/main.ts`：窗口、协议、设置和 IPC 边界。默认项目根目录保存在 Electron `userData/settings.json`；修改默认目录只影响以后新建的项目。
 - 桌面主进程在 `userData/runtime.log` 记录启动、子进程退出和未捕获异常；冒烟与端到端测试使用软件渲染，正常桌面运行保留硬件加速。
 - `electron/devDirectories.ts`：计算开发实例的用户数据目录与项目目录，防止 Chromium 缓存落在仓库所在卷。
 - `electron/preload.ts`：向渲染进程暴露受限 API；不直接暴露 Node 文件系统。
 - `electron/worker.ts`：项目和素材文件读写、媒体时长检测、FFmpeg 缓存任务及恢复快照。
 - 首页列表只读项目文档，按修订缓存由实际对象生成的 SVG 预览和 FFmpeg 媒体缩略图；画布预览复现项目保存的最后相机视口，列出项目不切换活动项目。音频波形缓存为带版本头的单声道 PCM 峰值二进制文件，画布按裁剪区间与 pixelsPerSecond 重采样到像素列并以单条 Konva Shape 绘制 1px 峰值线，改色与时间缩放不重新分析素材。
-- `scripts/`：桌面构建、媒体工具准备、免安装开发入口与受限范围内的测试产物清理。`dev-desktop.mjs` 在 Windows 下先切换 UTF-8 控制台，再打印 Vite 和 Electron 启动进度并保留子进程日志供排查；`preview-home.mjs` 使用独立临时项目和固定真实图片截取 Hello、文件夹静止与展开状态，供视觉闭环验收。所有脚本可从仓库根目录执行。
-- `tests/e2e/` 与 `tests/fixtures/`：端到端用例和固定的小样本素材。测试项目使用独立临时目录，不写入正式用户项目。
+- `scripts/build/`：Electron 编译、Hello 路径、图标生成和媒体工具准备；`scripts/dev/`：免安装桌面入口；`scripts/test/`：完整回归与冒烟入口。所有 npm 命令从仓库根目录运行，脚本资源路径随目录统一更新。
+- `scripts/visual/`：首页、工作台与模式切换的可复现验收脚本，默认使用 Electron。工作台脚本的 `--browser` 使用内存 IPC 夹具，仅作为 UI 检查。截图存入 `test-results/`，脚本退出时释放本次临时项目。
+- `scripts/maintenance/clean.mjs`：`clean:test` 只清理截图和测试报告；`clean` 同时清理构建输出、Vite 缓存、媒体解压副本与旧渲染缓存，`--dry-run` 只预览。固定白名单保留用户项目、本机设置、依赖、媒体可执行文件与下载归档，预检所有目标及父目录以拒绝符号链接或目录联接。
+- `tests/e2e/` 与 `tests/fixtures/`：端到端用例和固定的小样本素材。测试项目使用独立临时目录，不写入正式用户项目；`tests/tooling/` 验证清理工具的范围、预览及目录联接边界，并纳入 `verify`。
+- `build/`：应用图标；源图位于 `build/source/`，可用 `scripts/build/make-icon.ps1` 重新生成。
 - `vendor/`：FFmpeg 授权信息及按需准备的可执行文件。可执行文件不进 Git，打包前由 `prepare:media` 校验和准备。
 - `agent/`：本文件、变更记录、完整项目守则 `project-rules.md` 与视觉验收方法 `visual-verification.md`；根目录 `AGENTS.md` 保留入口及 Electron 复测硬性规则。`dist/`、`dist-electron/`、`release/`、`test-results/` 是生成物或临时目录，不是源码；其中 `release/` 仅在取得稳定发布确认后生成。
 
-协作资料按用途分层：`agent/` 保存项目自写约束、美术方向、技能职责与安装路径说明；外来 skill 安装在 Codex 用户级技能目录，WSL 等环境可通过符号链接复用；`docs/` 预留给人类用户的手册。技能读取路径与职责见 `agent/ui-design-workflow.md`。
+协作资料按用途分层：`agent/` 保存项目自写约束、美术方向和技能职责；使用与构建说明放在 `README.md`。外来 skill 安装在 Codex 用户级技能目录，读取方式与职责见 `agent/ui-design-workflow.md`。
 
 ## 数据边界
 
@@ -42,5 +51,18 @@
 
 外部文件拖入后由 preload 的 `webUtils.getPathForFile` 提取路径，通过校验过的 `assets:drop` IPC 复用后台导入；绝对路径不暴露给页面。图片放置前读取自然尺寸，默认锁定比例；裁剪以原图归一化区域保存，只改变显示，不覆盖源文件。对象样式包含填充、渐变、线型、周长间距、透明度和字体属性。
 
+剪贴板无路径图片经 `assets:paste-image` 传递限定大小的字节，后台校验 PNG/JPEG/GIF/WebP 签名并写入素材目录。
+
 对象移动和尺寸手势使用独立虚影，松开才提交文档，右键、Esc、窗口失焦或释放到画布外取消。素材库与工具使用 Pointer Events 预览放置，避免原生内部拖动吞掉右键。媒体注释只引用已存在标记：选中媒体后按 M 打标，再选中标记拖动其上方连接柄；普通箭头不会隐式创建标记。标记时间在媒体工作区中编辑。
 连接线保存在顶层独立图层，样式支持直线、正交折线、曲线、圆角、预设及自定义间隔、起止头部、端点尺寸、透明度与标签。多选连接线的样式修改一次提交为一次撤销，复制对象时保留连接线样式。
+## 工作台项目操作与主题入口
+
+- 首页项目卡片的省略号是独立的项目操作入口，菜单提供打开项目、在系统文件管理器中显示项目目录、重命名和删除项目；菜单触发事件必须阻止向下冒泡；展开状态与导航回调独立，外部点击和 Esc 只收起文件夹。卡片以目录为稳定身份，预览列表受控更新。重命名在后台保存队列中更新项目名与修订号，保持素材目录稳定。
+- 素材移除遵循“先文件、后文档”的顺序：渲染层通过受限 IPC 请求删除 `assets/` 内未被引用的文件，成功后再由编辑器删除资产元数据。仍被画布对象或笔记引用的素材保持禁用状态。
+- 深色/浅色模式由 `ThemeToggle` 提供全局入口，首页与工作台页头都必须可用；`ThemePicker` 只负责主题方案与自定义主题管理。切换按钮参考作者公开 CCgather 日月图标，以 1740ms 可逆运动和天空交叉淡化呈现状态；遵循减少动态效果及强制动画设置，授权见 vendor/CCgather-Apache-2.0.txt。
+- 工作台侧栏的工具、素材库、编辑入口采用统一线性图标和紧凑文字，当前可见面板以实色背景表示。属性按样式、文本、排列分组；颜色弹层通过 Portal 脱离滚动容器，并根据窗口边缘翻转定位。
+- 笔记采用导航、正文、可切换目录/批注辅助栏；分屏预览与辅助栏可同时显示，阅读模式替换正文，专注模式收起导航、标签与格式工具。批注持续固定在右侧；正文与预览按剩余空间分配宽度，版心按实际正文列限幅，极窄窗口只在正文/预览区域横向滚动。排版弹层默认收起，字体/字号仅在有选区时启用，无选区时留空；正文横线默认显示，字数、阅读时长和缩放位于底栏。
+- 编辑正文保留常见 Markdown 源标记（例如 `# `），不会在输入时立即转换并丢失标记；Markdown 预览根据源标记生成标题等排版结果。
+- 双击画布对象会选中对象并自动展开编辑面板；共享 NumberField 在按住微调按钮或方向键期间连续预览，松手、松键或失焦时只提交一次；Esc 取消。位置、尺寸和旋转固定显示在属性页签上方。画布移动提交时吸附到整数像素，保证拖动结果稳定。
+- 工具库与笔记素材均通过 Pointer Events 拖入画布；画布内放置虚影复用 ObjectView、待提交对象和相机坐标，因此尺寸、颜色、轮廓与释放结果一致，形状默认采用无填充极简描边样式。
+- 工作台顶栏由应用内导航栏统一承载模式、撤销、重做、主题和设置入口；Electron 默认原生 File/Edit 菜单被移除，语言设置只作用于应用内导航与内容。

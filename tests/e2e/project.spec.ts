@@ -85,3 +85,40 @@ test('项目创建后画布对象能保存并重开', async () => {
     await rm(testRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 });
+
+test('素材库移除会同步删除项目素材文件', async () => {
+  const testRoot = await mkdtemp(path.join(os.tmpdir(), 'workbench-asset-remove-'));
+  let application: ElectronApplication | undefined;
+  try {
+    const environment = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
+    delete environment.ELECTRON_RUN_AS_NODE;
+    application = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env: environment });
+    const page = await application.firstWindow();
+    const chosenRoot = path.join(testRoot, 'chosen-projects');
+    await mkdir(chosenRoot);
+    await application.evaluate(({ dialog }, folder) => { Object.defineProperty(dialog, 'showOpenDialog', { value: async () => ({ canceled: false, filePaths: [folder] }) }); }, chosenRoot);
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByRole('button', { name: '选择文件夹' }).click();
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.locator('.plus').click();
+    await page.getByRole('button', { name: '新建项目' }).click();
+    await page.getByLabel('项目名称').fill('素材清理');
+    await page.getByRole('button', { name: '创建项目' }).click();
+    await expect(page.locator('.canvas')).toBeVisible();
+    const fixture = path.resolve('tests/fixtures/sample.txt');
+    await application.evaluate(({ dialog }, source) => { Object.defineProperty(dialog, 'showOpenDialog', { value: async () => ({ canceled: false, filePaths: [source] }) }); }, fixture);
+    await page.getByRole('button', { name: /导入素材/ }).click();
+    await expect(page.locator('.asset-row')).toContainText('sample.txt');
+    const assetPath = await page.locator('.asset-row').first().evaluate(row => row.querySelector('.asset-details b')?.textContent);
+    expect(assetPath).toBe('sample.txt');
+    await page.getByRole('button', { name: '移除 sample.txt' }).click();
+    await expect(page.locator('.asset-row')).toHaveCount(0);
+    const folders = await readdir(chosenRoot);
+    const projectFolder = path.join(chosenRoot, folders[0]);
+    const assets = await readdir(path.join(projectFolder, 'assets'));
+    expect(assets).toHaveLength(0);
+  } finally {
+    await application?.close().catch(() => undefined);
+    await rm(testRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+});

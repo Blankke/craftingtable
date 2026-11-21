@@ -11,9 +11,12 @@ declare global {
       pickProjectFolder(): Promise<{ folder: string; document: ProjectDocument & { recovered?: boolean } } | null>;
       revealProject(folder: string): Promise<void>;
       deleteProject(folder: string): Promise<boolean>;
+      renameProject(folder: string, name: string): Promise<{ revision: number }>;
+      exportNote(input: { name: string; markdown: string }): Promise<boolean>;
       saveProject(document: ProjectDocument): Promise<{ revision: number }>;
       leaveProject(): Promise<void>;
       importAssets(): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;
+      removeAsset(assetPath: string): Promise<{ removed: boolean }>;
       importDroppedFiles(files: File[]): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;
       relinkAsset(kind: 'video' | 'audio' | 'image' | 'text'): Promise<ProjectDocument['assets'][number] | null>;
       createTextAsset(input: { name: string; content: string }): Promise<ProjectDocument['assets'][number]>;
