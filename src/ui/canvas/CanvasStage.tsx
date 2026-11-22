@@ -535,7 +535,17 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
         } else { draft.camera.x -= event.evt.deltaX; draft.camera.y -= event.evt.deltaY; }
       });
     }}
-    onDblClick={event => { const id = objectIdFromNode(event.target); const object = document.objects.find(item => item.id === id); if (object?.kind === 'note') { onOpenNote(object.noteId); return; } if (object) { onSelect([object.id]); onOpenInspector(); } }}>
+    onDblClick={event => {
+      if (tool !== 'select' || event.evt.button !== 0 || space.current) return;
+      const id = objectIdFromNode(event.target);
+      const object = document.objects.find(item => item.id === id);
+      if (!object) return;
+      if (object.kind === 'note') { onOpenNote(object.noteId); return; }
+      onSelect([object.id]);
+      onOpenInspector();
+      // 展开属性面板时同时恢复原位文字输入；未设置 text 的空形状也应可编辑。
+      if ('text' in object || 'fill' in object) setEditing({ id: object.id, text: object.text ?? '' });
+    }}>
     <Layer>
       {visibleObjects.map(object => { const asset = 'assetId' in object ? document.assets.find(item => item.id === object.assetId) : undefined; const note = object.kind === 'note' ? document.notes.find(item => item.id === object.noteId) : undefined; return <ObjectView scale={document.camera.scale} key={object.id} object={object} tool={tool} selected={selected.includes(object.id)} trimMode={trimMode && playback?.mediaId === object.id} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[object.id]} markers={document.markers.filter(marker => marker.mediaId === object.id)} playheadUs={playback?.mediaId === object.id ? playback.timeUs : undefined} note={note} onSelect={additive => onSelect(additive ? (selected.includes(object.id) ? selected.filter(id => id !== object.id) : [...selected, object.id]) : [object.id])} onSeek={(timeUs, play) => onPlayback(object.id, timeUs, play)} />; })}
     </Layer>
@@ -564,5 +574,13 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
       <Line ref={previewLine} points={[]} stroke={accent} strokeWidth={2} listening={false} visible={false} />
       <Rect ref={previewRect} stroke={accent} dash={[5, 4]} fill={colorToRgba(tokens.primary, 0.13)} listening={false} visible={false} />
     </Layer>
-  </Stage>{editing && editingObject && ('text' in editingObject || 'fill' in editingObject) && <><textarea ref={textarea} className="canvas-text-editor" aria-label={t('编辑画布文字', 'Edit canvas text')} value={editing.text} onChange={event => setEditing({ ...editing, text: event.target.value })} onBlur={event => commitText(event.currentTarget.value)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setEditing(null); if (event.key === 'Enter' && event.ctrlKey) commitText(event.currentTarget.value); }} style={{ left: editingObject.x * document.camera.scale + document.camera.x, top: editingObject.y * document.camera.scale + document.camera.y, width: editingObject.width * document.camera.scale, minHeight: editingObject.height * document.camera.scale, fontSize: (editingObject.fontSize ?? 18) * document.camera.scale, color: editingObject.color, textAlign: editingObject.align }} /><button className="canvas-text-done" aria-label={t('完成文字编辑', 'Finish text editing')} onMouseDown={event => event.preventDefault()} onClick={() => commitText(textarea.current?.value)} style={{ left: (editingObject.x + editingObject.width) * document.camera.scale + document.camera.x + 8, top: editingObject.y * document.camera.scale + document.camera.y }}>{t('完成', 'Done')}</button></>}</>;
+  </Stage>{editing && editingObject && ('text' in editingObject || 'fill' in editingObject) && <>
+    {/* 输入框的前景色与背景色统一跟随主题，保证任意对象文字颜色下都能看清输入内容。 */}
+    <textarea ref={textarea} className="canvas-text-editor" aria-label={t('编辑画布文字', 'Edit canvas text')} value={editing.text}
+      onChange={event => setEditing({ ...editing, text: event.target.value })}
+      onBlur={event => commitText(event.currentTarget.value)}
+      onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setEditing(null); if (event.key === 'Enter' && event.ctrlKey) commitText(event.currentTarget.value); }}
+      style={{ left: editingObject.x * document.camera.scale + document.camera.x, top: editingObject.y * document.camera.scale + document.camera.y, width: editingObject.width * document.camera.scale, minHeight: editingObject.height * document.camera.scale, fontSize: (editingObject.fontSize ?? 18) * document.camera.scale, textAlign: editingObject.align }} />
+    <button className="canvas-text-done" aria-label={t('完成文字编辑', 'Finish text editing')} onMouseDown={event => event.preventDefault()} onClick={() => commitText(textarea.current?.value)} style={{ left: (editingObject.x + editingObject.width) * document.camera.scale + document.camera.x + 8, top: editingObject.y * document.camera.scale + document.camera.y }}>{t('完成', 'Done')}</button>
+  </>}</>;
 }

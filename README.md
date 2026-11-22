@@ -69,7 +69,7 @@ sudo dnf install ./CraftingTable-0.1.0-linux-x86_64.rpm
 2. 导入素材，或从文件管理器将媒体文件拖入画布。
 3. 选中媒体轨道、定位播放头，按 **M** 添加标记；选中标记后，从连接柄拖出文字批注或连接已有文字。
 4. 切换到“笔记”撰写提纲、整理资料或阅读转录文稿；双击画布上的笔记缩略图即可打开正文。
-5. 在“编辑”面板修改对象的样式、位置与尺寸。规则图形可开启“锁定标准比例”。
+5. 双击文本框、形状或媒体批注直接输入文字，点击“完成”、按 **Ctrl+Enter** 或点击外部保存，**Esc** 取消本次输入。在“编辑”面板修改样式、位置与尺寸；规则图形可开启“锁定标准比例”。
 
 拖放操作显示虚影，松开提交，右键或 **Esc** 取消。**Ctrl+S** 保存，**Ctrl+Z** 撤销，项目名称旁显示保存状态。面板大小、收藏与主题偏好保存在本机。
 
@@ -121,6 +121,10 @@ PowerShell 的执行策略限制 `npm.ps1` 时，使用 `npm.cmd`。`dev` 启动
 ```powershell
 # Windows PowerShell
 node scripts/test/smoke-desktop.mjs --executable=release/win-unpacked/工作台.exe
+# 直接在打包程序中复测文本框、形状和媒体批注的双击输入
+$env:WORKBENCH_TEST_EXECUTABLE = 'release/win-unpacked/工作台.exe'
+npx playwright test tests/e2e/canvas-text.spec.ts
+Remove-Item Env:WORKBENCH_TEST_EXECUTABLE
 # 在未安装工作台的测试用户中验证 NSIS 安装、图标、离线媒体与卸载
 powershell -ExecutionPolicy Bypass -File scripts/test/verify-windows-package.ps1
 ```

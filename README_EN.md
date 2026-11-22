@@ -69,7 +69,7 @@ If FUSE is unavailable, use `./CraftingTable-0.1.0-linux-x86_64.AppImage --appim
 2. Import media or drag files from your file manager onto the canvas.
 3. Select a media track, position the playhead and press **M** to add a marker. Drag from a selected marker’s connection handle to create or connect an annotation.
 4. Switch to **Notes** to write an outline, collect references or review a transcript. Double-click a note on the canvas to open it.
-5. Edit an object’s appearance and geometry in the **Edit** panel. Enable **Lock standard proportions** for regular shapes.
+5. Double-click a text box, shape or media annotation to edit its text. Click **Done**, press **Ctrl+Enter** or click outside to save; **Esc** cancels the edit. Use the **Edit** panel for appearance and geometry, including **Lock standard proportions** for regular shapes.
 
 Drag gestures show a preview and commit on release; right-click or **Esc** cancels. **Ctrl+S** saves, **Ctrl+Z** undoes, and save status appears beside the project name. Panel sizes, favorites and theme choices are stored on your device.
 
@@ -121,6 +121,10 @@ To validate packaged binaries:
 ```powershell
 # Windows PowerShell
 node scripts/test/smoke-desktop.mjs --executable=release/win-unpacked/工作台.exe
+# Test double-click text editing in the packaged application
+$env:WORKBENCH_TEST_EXECUTABLE = 'release/win-unpacked/工作台.exe'
+npx playwright test tests/e2e/canvas-text.spec.ts
+Remove-Item Env:WORKBENCH_TEST_EXECUTABLE
 # Use a Windows test account without an existing installation
 powershell -ExecutionPolicy Bypass -File scripts/test/verify-windows-package.ps1
 ```
