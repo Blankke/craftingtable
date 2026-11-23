@@ -1,7 +1,7 @@
 import { canvasTextPlainText } from '../src/core/canvasText';
 import type { RichTextDocument } from '../src/core/richText';
 import { PROJECT_SCHEMA_VERSION } from '../src/core/document';
-import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, utilityProcess, Menu, clipboard, ClipboardItem, nativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, utilityProcess, Menu, clipboard, ClipboardItem, nativeImage, nativeTheme } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync, realpathSync, statSync } from 'node:fs';
@@ -271,8 +271,15 @@ else app.whenReady().then(() => {
   });
   ipcMain.handle('tasks:cancel', (_event, taskId: unknown) => call({ method: 'cancel', taskId: z.string().uuid().parse(taskId) }));
   const appIcon = path.join(__dirname, '../build/icon.png');
+  const frameColor = () => nativeTheme.shouldUseDarkColors ? '#202020' : '#f5f5f5';
   // 自动化由 DevTools 注入输入；隔离宿主机鼠标和焦点，避免真实移动中断拖动或提交未完成的文字。
-  window = new BrowserWindow({ width: 1440, height: 900, show: !smoke, focusable: !e2eRoot, backgroundColor: '#ffffff', icon: existsSync(appIcon) ? appIcon : undefined, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke && !e2eRoot } });
+  // 显式中性色避免 Windows 强调色或默认活动标题栏染蓝；保留原生窗口控件及系统明暗模式。
+  window = new BrowserWindow({ width: 1440, height: 900, show: !smoke, focusable: !e2eRoot, backgroundColor: '#ffffff', accentColor: frameColor(), icon: existsSync(appIcon) ? appIcon : undefined, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke && !e2eRoot } });
+  if (process.platform === 'win32') {
+    const updateFrame = () => { if (!window.isDestroyed()) window.setAccentColor(frameColor()); };
+    nativeTheme.on('updated', updateFrame);
+    window.once('closed', () => nativeTheme.removeListener('updated', updateFrame));
+  }
   if (e2eRoot) window.setIgnoreMouseEvents(true);
   window.webContents.on('console-message', (_event, level, message) => { if (level >= 2) runtimeLog(`界面控制台：${message}`); });
   window.webContents.on('render-process-gone', (_event, details) => runtimeLog(`界面进程退出：${details.reason} ${details.exitCode}`));

@@ -4,6 +4,7 @@
 
 ## 运行路径
 
+- Windows 窗口保留原生标题栏和窗口按钮；`electron/main.ts` 显式设置浅灰/深灰标题栏，并响应 `nativeTheme` 的系统明暗变化，避免系统强调色或默认活动窗口颜色染蓝。`scripts/visual/preview-window-frame.mjs` 从实际屏幕采集整窗，覆盖原生边框；网页截图无法替代此检查。
 - `npm.cmd run dev`：先构建 Electron 主进程，再启动 Vite 与未安装的 Electron 桌面窗口。Vite 只服务该窗口的界面热更新；主进程修改需重启命令。开发项目默认在忽略提交的 `.runtime/projects/`；Electron 设置、缓存和网络数据保存在 Windows 用户目录的 `media-planning-workbench-dev/`，与正式安装版隔离。
 - `npm.cmd run build`：检查 TypeScript，构建界面和桌面进程。开发预览和人工检查统一使用 `npm.cmd run dev`；仅在用户明确确认稳定发布后，才运行 `npm run dist:win` 生成 NSIS 与便携 EXE，或 `npm run dist:linux` 生成 AppImage、DEB、RPM；`dist:linux:docker` 在 Debian 12 隔离构建并复制产物，桌面验收在宿主机执行。
 - `npm.cmd run verify`：类型检查、单元测试及端到端测试。此命令会启动 Electron，必须在沙箱外执行；`smoke`、`test:e2e`、`dev` 和 `start` 同理。具体复测边界见根目录 `AGENTS.md` 与 `agent/project-rules.md`。
