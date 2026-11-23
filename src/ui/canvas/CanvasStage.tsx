@@ -1,3 +1,4 @@
+import { connectionAnchorAt } from '../../core/connectionGeometry';
 import { BoundedCache } from '../../core/boundedCache';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Rect, Text, Line, Group, Image as KonvaImage, Circle, Path, RegularPolygon, Shape } from 'react-konva';
@@ -9,7 +10,7 @@ import { copyCanvasGraphic } from './canvasExport';
 import { ImageStackViewer } from './ImageStackViewer';
 import { canvasTextLayout, isTextObject } from './canvasTextLayout';
 import type { RichTextDocument } from '../../core/richText';
-import { resizeObject, styleOf } from '../../core/appearance';
+import { resizeFromCorner, styleOf } from '../../core/appearance';
 import { CANVAS_TEXT_WIDTH, emptyCanvasText } from '../../core/canvasText';
 import { useInteractionStore } from './interactionStore';
 import { Editor } from '../../core/editor';
@@ -36,7 +37,8 @@ type Gesture =
   | { kind: 'scale-time'; mediaId: string; x: number; inUs: number; outUs: number; node: Konva.Node | null }
   | { kind: 'trim'; mediaId: string; side: 'in' | 'out'; x: number; inUs: number; outUs: number; pixelsPerSecond: number; durationUs: number; node: Konva.Node | null }
   | { kind: 'move'; start: Point; ids: string[] }
-  | { kind: 'resize'; start: Point; object: CanvasObject }
+  | { kind: 'resize'; start: Point; object: CanvasObject; corner: 'nw' | 'ne' | 'sw' | 'se' }
+  | { kind: 'endpoint'; id: string; side: 'from' | 'to'; start: Point }
   | { kind: 'crop'; start: Point; object: Extract<CanvasObject, { kind: 'image' }>; crop: { x: number; y: number; width: number; height: number }; corner?: 'nw' | 'ne' | 'sw' | 'se' }
   | { kind: 'arrow'; start: Point; sourceId: string | null; markerId: string | null; pointId?: string };
 
@@ -230,12 +232,14 @@ const noMarkers: ProjectDocument['markers'] = [];
 /** 选区独立于素材透明度及叠放顺序，轮廓和手柄始终保持固定屏幕尺寸。 */
 function SelectionOutline({ object, scale, accent, surface, resizable }: { object: CanvasObject; scale: number; accent: string; surface: string; resizable: boolean }) {
   const width = object.kind === 'media' ? mediaWidth(object) : object.width, height = object.height;
-  const handle = Math.min(12 / scale, width / 2, height / 2);
+  // 深色主题的品牌色也可能偏暗，手柄与虚线需和底描保持足够对比度。
+  const selectionColor = canvasInk(accent, [surface]);
+  const corners = [{ x: 0, y: 0, name: 'nw' }, { x: width, y: 0, name: 'ne' }, { x: 0, y: height, name: 'sw' }, { x: width, y: height, name: 'se' }];
   return <Group name={`object:${object.id} editor-decoration`} x={object.x + width / 2} y={object.y + height / 2} offsetX={width / 2} offsetY={height / 2} rotation={object.rotation ?? 0}>
-    <Rect width={width} height={height} stroke={surface} strokeWidth={4 / scale} listening={false} />
-    <Rect width={width} height={height} stroke={accent} strokeWidth={2 / scale} listening={false} />
-    {([[0, 0], [width, 0], [0, height]] as const).map(([x, y], index) => <Rect key={index} x={x - 2.5 / scale} y={y - 2.5 / scale} width={5 / scale} height={5 / scale} fill={surface} stroke={accent} strokeWidth={1.5 / scale} listening={false} />)}
-    {resizable && !object.locked && object.kind !== 'media' && <Line name="resize-handle editor-decoration" points={[width - handle, height, width, height, width, height - handle]} stroke={accent} strokeWidth={3 / scale} hitStrokeWidth={16 / scale} lineCap="round" lineJoin="round" />}
+    <Rect width={width} height={height} stroke={surface} strokeWidth={3 / scale} dash={[6 / scale, 4 / scale]} listening={false} />
+    <Rect width={width} height={height} stroke={selectionColor} strokeWidth={1.5 / scale} dash={[6 / scale, 4 / scale]} listening={false} />
+    {corners.map(({ x, y, name }) => <Rect key={name} name={`resize-${name} editor-decoration`} x={x - 4 / scale} y={y - 4 / scale} width={8 / scale} height={8 / scale} fill={surface} stroke={selectionColor} strokeWidth={1.5 / scale} hitStrokeWidth={8 / scale}
+      listening={resizable && !object.locked && object.kind !== 'media'} onMouseEnter={event => { event.target.getStage()!.container().style.cursor = `${name}-resize`; }} onMouseLeave={event => { event.target.getStage()!.container().style.cursor = ''; }}/>) }
   </Group>;
 }
 
@@ -301,6 +305,7 @@ function ConnectionView({ connection, document, accent, selected }: {
     : [from.x, from.y, to.x, to.y];
   const style = connection.style ?? {};
   const color = canvasInk(style.color ?? accent, [colorToHex(tokens.background)]);
+  const selectionColor = canvasInk(accent, [colorToHex(tokens.background), colorToHex(tokens.card)]);
   const strokeWidth = style.strokeWidth ?? 2;
   const dash = style.dash === 'custom' ? style.customDash ?? [8, 5] : dashPattern(style.dash ?? 'dashed');
   const lastX = points[points.length - 2], lastY = points[points.length - 1];
@@ -308,15 +313,18 @@ function ConnectionView({ connection, document, accent, selected }: {
   const endAngle = (Math.atan2(lastY - prevY, lastX - prevX) * 180) / Math.PI;
   const startAngle = (Math.atan2(points[1] - points[3], points[0] - points[2]) * 180) / Math.PI;
   const pathProps = { bezier: connection.routing === 'curve', tension: connection.routing === 'elbow' && style.rounded ? 0.14 : 0 };
-  return <Group name={`connection:${connection.id}`} opacity={style.opacity ?? 1}>
-    {selected && <>
-      <Line points={points} stroke={colorToHex(tokens.card)} strokeWidth={strokeWidth + 6 / document.camera.scale} listening={false} {...pathProps} />
-      <Line points={points} stroke={accent} strokeWidth={strokeWidth + 4 / document.camera.scale} listening={false} {...pathProps} />
-    </>}
-    <Line points={points} stroke={color} strokeWidth={strokeWidth} dash={dash} hitStrokeWidth={14} {...pathProps} />
+  return <Group name={`connection:${connection.id}`}><Group opacity={style.opacity ?? 1}>
+    <Line points={points} stroke={color} strokeWidth={strokeWidth} dash={dash} hitStrokeWidth={14 / document.camera.scale} {...pathProps} />
     <ConnectionHead x={lastX} y={lastY} angleDeg={endAngle} head={style.endHead ?? 'arrow'} color={color} strokeWidth={strokeWidth} headSize={style.headSize} />
     <ConnectionHead x={points[0]} y={points[1]} angleDeg={startAngle} head={style.startHead ?? 'none'} color={color} strokeWidth={strokeWidth} headSize={style.headSize} />
     {style.label && <Text x={(from.x + to.x) / 2 - 60} y={(from.y + to.y) / 2 - 10} width={120} align="center" text={style.label} fontSize={14} fill={color} />}
+    </Group>
+    {selected && <Group name="editor-decoration" opacity={1}>
+      <Line points={points} stroke={selectionColor} strokeWidth={1.5 / document.camera.scale} dash={[6 / document.camera.scale, 4 / document.camera.scale]} listening={false} {...pathProps}/>
+      {([{ side: 'from', point: from }, { side: 'to', point: to }] as const).map(({ side, point }) => <Rect key={side} name={`endpoint-${side} editor-decoration`} x={point.x - 4 / document.camera.scale} y={point.y - 4 / document.camera.scale} width={8 / document.camera.scale} height={8 / document.camera.scale} fill={colorToHex(tokens.card)} stroke={selectionColor} strokeWidth={1.5 / document.camera.scale} hitStrokeWidth={10 / document.camera.scale}
+        onMouseEnter={event => { event.target.getStage()!.container().style.cursor = 'crosshair'; }} onMouseLeave={event => { event.target.getStage()!.container().style.cursor = ''; }}/>) }
+    </Group>}
+
   </Group>;
 }
 
@@ -416,7 +424,15 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
     if (!end) return;
     if (active.kind === 'move' || active.kind === 'resize') {
       const preview = ghostRef.current; setGhost([]);
-      if (preview.length) editor.execute(draft => { for (const ghost of preview) { const index = draft.objects.findIndex(item => item.id === ghost.id); if (index >= 0) draft.objects[index] = { ...ghost, x: Math.round(ghost.x), y: Math.round(ghost.y) } as typeof draft.objects[number]; } });
+      if (preview.length) editor.execute(draft => { for (const ghost of preview) { const index = draft.objects.findIndex(item => item.id === ghost.id); if (index >= 0) draft.objects[index] = active.kind === 'resize' ? ghost : { ...ghost, x: Math.round(ghost.x), y: Math.round(ghost.y) } as typeof draft.objects[number]; } });
+      return;
+    }
+    if (active.kind === 'endpoint') {
+      if (editor.isPreviewing) {
+        const anchor = connectionAnchorAt(editor.document, end);
+        editor.preview(draft => { const connection = draft.connections.find(item => item.id === active.id); if (connection) connection[active.side] = anchor; });
+        editor.commitPreview();
+      }
       return;
     }
     if (active.kind === 'scale-time' || active.kind === 'trim' || active.kind === 'crop') { editor.commitPreview(); return; }
@@ -481,6 +497,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
     return object.x < visible.right && object.x + (object.kind === 'media' ? mediaWidth(object) : object.width) > visible.left && top < visible.bottom && bottom > visible.top;
   });
   const stack = document.objects.find(object => object.id === viewingStack);
+  useEffect(() => { if (viewingStack && stack?.kind !== 'imageStack') setViewingStack(null); }, [viewingStack, stack?.kind]);
   const focusCanvas = () => { const element = stageRef.current?.container(); if (element) { element.tabIndex = -1; element.focus({ preventScroll: true }); } };
   return <><Stage ref={stageRef} onContextMenu={event => {
     event.evt.preventDefault();
@@ -504,6 +521,8 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
         const connectionId = connectionIdFromNode(event.target);
         if (connectionId) {
           event.evt.preventDefault();
+          const side = event.target.name().split(' ')[0];
+          if (side === 'endpoint-from' || side === 'endpoint-to') { gesture.current = { kind: 'endpoint', id: connectionId, side: side === 'endpoint-from' ? 'from' : 'to', start: point }; return; }
           const additive = event.evt.ctrlKey || event.evt.shiftKey;
           setSelectedConnections(additive ? selectedConnections.includes(connectionId) ? selectedConnections.filter(id => id !== connectionId) : [...selectedConnections, connectionId] : [connectionId]);
           return;
@@ -548,7 +567,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
         if (document.objects.some(object => editor.expandObjectIds(selected.includes(source.id) ? selected : [source.id]).has(object.id) && object.locked)) return;
         if (handleName.startsWith('marker:') || event.target.getParent()?.name().startsWith('marker:')) return;
         if ((handleName === 'crop-move-handle' || handleName.startsWith('crop-resize-')) && source.kind === 'image') { const corner = handleName.replace('crop-resize-', ''); gesture.current = { kind: 'crop', start: point, object: source, crop: source.crop ?? { x: 0, y: 0, width: 1, height: 1 }, ...(corner === handleName ? {} : { corner: corner as 'nw' | 'ne' | 'sw' | 'se' }) }; return; }
-        if (handleName === 'resize-handle') { gesture.current = { kind: 'resize', start: point, object: source }; return; }
+        if (/^resize-(nw|ne|sw|se)$/.test(handleName)) { gesture.current = { kind: 'resize', start: point, object: source, corner: handleName.slice(7) as 'nw' | 'ne' | 'sw' | 'se' }; return; }
         if (source.kind === 'media' && handleName !== 'media-drag-handle') return;
         const ids = [...editor.expandObjectIds(selected.includes(source.id) ? selected : [source.id])];
         gesture.current = { kind: 'move', start: point, ids }; return;
@@ -572,9 +591,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
         return;
       }
       if (active.kind === 'resize') {
-        const copy = structuredClone(active.object);
-        resizeObject(copy, active.object.width + point.x - active.start.x, active.object.height + point.y - active.start.y);
-        setGhost([copy]); return;
+        setGhost([resizeFromCorner(active.object, active.corner, point.x - active.start.x, point.y - active.start.y)]); return;
       }
       if (active.kind === 'crop') {
         const dx = (point.x - active.start.x) / active.object.width, dy = (point.y - active.start.y) / active.object.height;
@@ -622,6 +639,11 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
           if (active.side === 'in') media.inUs = Math.max(0, Math.min(active.outUs - 100_000, sourceUs));
           else media.outUs = Math.max(active.inUs + 100_000, Math.min(active.durationUs, sourceUs));
         });
+        return;
+      }
+      if (active.kind === 'endpoint') {
+        if (Math.hypot(point.x - active.start.x, point.y - active.start.y) * document.camera.scale < 3 && !editor.isPreviewing) return;
+        editor.preview(draft => { const connection = draft.connections.find(item => item.id === active.id); if (connection) connection[active.side] = { kind: 'free', point }; });
         return;
       }
       if (active.kind === 'brush') { active.points.push(point); previewLine.current?.points(active.points.flatMap(item => [item.x, item.y])); previewLine.current?.show(); previewLine.current?.getLayer()?.batchDraw(); return; }

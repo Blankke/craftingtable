@@ -28,7 +28,7 @@
     "start": "electron .",
     "smoke": "npm run build && npm run prepare:media && node scripts/test/smoke-desktop.mjs",
     "prepare:media": "node scripts/build/prepare-media.mjs",
-    "test:unit": "tsc --noEmit && vitest run src electron/projectSettings.test.ts electron/devDirectories.test.ts",
+    "test:unit": "tsc --noEmit && vitest run src electron/projectSettings.test.ts electron/devDirectories.test.ts electron/assetFiles.test.ts",
     "verify": "npm run test:unit && npm run test:tooling && npm run test:e2e",
     "test:e2e": "npm run prepare:media && npm run build && playwright test",
     "build": "node scripts/build/generate-hello-path.mjs && tsc --noEmit && vite build && node scripts/build/build-electron.mjs",

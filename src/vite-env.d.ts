@@ -20,6 +20,7 @@ declare global {
       saveProject(document: ProjectDocument): Promise<{ revision: number }>;
       leaveProject(): Promise<void>;
       importAssets(): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;
+      revealAsset(assetPath: string): Promise<void>;
       removeAsset(assetPath: string): Promise<{ removed: boolean }>;
       importDroppedFiles(files: File[]): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;
       relinkAsset(kind: 'video' | 'audio' | 'image' | 'text'): Promise<ProjectDocument['assets'][number] | null>;

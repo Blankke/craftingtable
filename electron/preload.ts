@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveProject: (document: unknown) => ipcRenderer.invoke('projects:save', document),
   leaveProject: () => ipcRenderer.invoke('projects:leave'),
   importAssets: () => ipcRenderer.invoke('assets:import'),
+  revealAsset: (assetPath: string) => ipcRenderer.invoke('assets:reveal', assetPath),
   removeAsset: (assetPath: string) => ipcRenderer.invoke('assets:remove', assetPath),
   // 只在 preload 中解析真实拖入文件；磁盘绝对路径不回传给页面。
   importDroppedFiles: async (files: File[]) => {

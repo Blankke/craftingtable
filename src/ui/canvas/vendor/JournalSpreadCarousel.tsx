@@ -1,3 +1,4 @@
+import { ImageStackGrid } from '../ImageStackGrid'
 // 用法：由 ImageStackViewer 传入真实项目图片；保留原组件的双页折叠、景深与拖动翻页。
 // 来源：用户提供的 21st.dev / @kedhareswer / journal-spread-carousel 组件。
 
@@ -53,6 +54,8 @@ export interface JournalSpreadCarouselProps {
   meta?: string
   height?: string
   initialIndex?: number
+  activeId?: string
+  onReorder?: (id: string, targetId: string) => void
   /** Milliseconds between automatic page turns; false turns it off. Stops on the first touch. */
   autoPlay?: number | false
   onIndexChange?: (index: number) => void
@@ -150,11 +153,11 @@ const CSS =
   ".jsc-stage[data-drag]{cursor:grabbing}" +
   ".jsc-floor{position:absolute;left:50%;top:50%;width:calc(var(--jsc-w) * 1.55);height:calc(var(--jsc-h) * .62);transform:translate(-50%,calc(var(--jsc-h) * .2));" +
   "background:#20243a;opacity:.55;filter:blur(calc(var(--jsc-w) * .03));border-radius:calc(var(--jsc-w) * .04);pointer-events:none}" +
-  ".jsc-view{position:absolute;inset:0;perspective:calc(var(--jsc-w) * 2.3);perspective-origin:50% 46%}" +
+  ".jsc-view{position:absolute;inset:0;perspective:var(--jsc-perspective,1600px);perspective-origin:50% 46%}" +
   ".jsc-scene{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:preserve-3d}" +
   ".jsc-item{position:absolute;left:0;top:0;transform-style:preserve-3d;visibility:hidden}" +
   ".jsc-page{position:absolute;top:calc(var(--jsc-h) * -.5);width:calc(var(--jsc-w) * .5);height:var(--jsc-h);overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden;" +
-  "background:#efebe3;box-shadow:0 1px 0 rgba(255,255,255,.35) inset}" +
+  "background:transparent;box-shadow:none}" +
   // 只在书页中缝处重叠半像素；外侧边缘保持原宽度，避免漏出纸面底色。
   ".jsc-page[data-side=l]{left:calc(var(--jsc-w) * -.5);width:calc(var(--jsc-w) * .5 + .5px);transform-origin:100% 50%;border-radius:calc(var(--jsc-w) * .034) 0 0 calc(var(--jsc-w) * .034)}" +
   ".jsc-page[data-side=r]{left:0;transform-origin:0 50%;border-radius:0 calc(var(--jsc-w) * .034) calc(var(--jsc-w) * .034) 0}" +
@@ -252,7 +255,7 @@ function Icon({ name }: { name: string }) {
 
 function Sheet({ spread }: { spread: JournalSpread }) {
   return (
-    <div className="jsc-sheet" style={{ background: spread.paper }}>
+    <div className="jsc-sheet" style={{ background: spread.image ? "transparent" : spread.paper }}>
       {spread.image ? (
         <img className="jsc-bg" src={spread.image} alt="" draggable={false} decoding="async" style={{ maxWidth: "none", objectPosition: spread.imagePosition }} />
       ) : null}
@@ -288,6 +291,8 @@ export default function JournalSpreadCarousel({
   meta,
   height = "100svh",
   initialIndex = 0,
+  activeId,
+  onReorder,
   autoPlay = false,
   onIndexChange,
   caption,
@@ -305,7 +310,10 @@ export default function JournalSpreadCarousel({
   const [index, setIndex] = React.useState(start)
   const [reduced, setReduced] = React.useState(false)
   const [dragging, setDragging] = React.useState(false)
-  const [aspect, setAspect] = React.useState(1.25)
+  const [imageAspects, setImageAspects] = React.useState<Record<string, number>>({})
+  const aspect = imageAspects[spreads[index]?.image ?? ''] ?? 1.25
+  const itemWidths = React.useRef<number[]>([])
+  const imageSources = spreads.map(spread => spread.image ?? '').join('\n')
   const [zoom, setZoom] = React.useState({ scale: 1, x: 0, y: 0 })
   const zoomRef = React.useRef(zoom)
   const stageSize = React.useRef({ width: 0, height: 0, imageHeight: 0 })
@@ -345,7 +353,7 @@ export default function JournalSpreadCarousel({
     for (let i = 0; i < items.current.length; i++) {
       const el = items.current[i]
       if (!el) continue
-      const q = poseFor(i - pos.current, w)
+      const q = poseFor(i - pos.current, itemWidths.current[i] ?? w)
       if (q.hidden) {
         el.style.visibility = "hidden"
         continue
@@ -401,6 +409,12 @@ export default function JournalSpreadCarousel({
     [n, kick, resetZoom],
   )
 
+  // 排序后按稳定身份继续查看同一张图，避免备注与当前页错位。
+  React.useEffect(() => {
+    const next = spreads.findIndex(spread => spread.id === activeId)
+    if (next >= 0 && next !== target.current) go(next, easeInOut, true)
+  }, [spreads, activeId, go])
+
   const changeZoom = React.useCallback((scale: number, point = { x: 0, y: 0 }) => {
     touched.current = true
     // 放大时先结束折页，确保拖动只移动当前图片。
@@ -416,15 +430,16 @@ export default function JournalSpreadCarousel({
   }, [paint, updateZoom])
 
   React.useEffect(() => {
-    const source = spreads[index]?.image
-    if (!source) { setAspect(1.25); return }
-    const image = new Image()
     let active = true
-    image.onload = () => { if (active && image.naturalHeight) setAspect(image.naturalWidth / image.naturalHeight) }
-    image.onerror = () => { if (active) setAspect(1.25) }
-    image.src = source
-    return () => { active = false; image.onload = null; image.onerror = null }
-  }, [spreads[index]?.image])
+    // 每页缓存自身比例，翻页只改变折叠角度，不把离场图改成下一张的尺寸。
+    const images = imageSources.split('\n').filter(Boolean).map(source => {
+      const image = new Image()
+      image.onload = () => { if (active && image.naturalHeight) setImageAspects(previous => ({ ...previous, [source]: image.naturalWidth / image.naturalHeight })) }
+      image.src = source
+      return image
+    })
+    return () => { active = false; images.forEach(image => { image.onload = null }) }
+  }, [imageSources])
 
   React.useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -446,7 +461,15 @@ export default function JournalSpreadCarousel({
     const ro = new ResizeObserver(([entry]) => {
       const { width: sw, height: sh } = entry.contentRect
       const w = spreadWidth(sw, sh, aspect)
+      // 透视由窗口决定，切换横竖图不能突然改变整组折页的相机距离。
+      root.style.setProperty("--jsc-perspective", sw * 2.3 + "px")
       width.current = w
+      itemWidths.current = spreads.map((spread, i) => {
+        const ratio = imageAspects[spread.image ?? ''] ?? 1.25, pageWidth = spreadWidth(sw, sh, ratio)
+        items.current[i]?.style.setProperty('--jsc-w', pageWidth + 'px')
+        items.current[i]?.style.setProperty('--jsc-h', pageWidth / ratio + 'px')
+        return pageWidth
+      })
       stageSize.current = { width: sw, height: sh, imageHeight: w / aspect }
       root.style.setProperty("--jsc-w", w + "px")
       root.style.setProperty("--jsc-h", w / aspect + "px")
@@ -456,7 +479,7 @@ export default function JournalSpreadCarousel({
     ro.observe(stage)
     // 图片比例变化只更新布局，不能取消正在运行的翻页帧循环。
     return () => ro.disconnect()
-  }, [paint, grid, aspect, updateZoom])
+  }, [paint, grid, aspect, imageAspects, imageSources, updateZoom])
 
   React.useEffect(() => () => cancelAnimationFrame(raf.current), [])
 
@@ -633,9 +656,7 @@ export default function JournalSpreadCarousel({
         </div>
       </div>
 
-      {grid ? <div className="jsc-grid">{spreads.map((spread, i) => <button key={spread.id ?? i} onClick={() => { setGrid(false); go(i, easeInOut, true) }} aria-label={`${t('查看图片', 'View image')} ${i + 1}`}>
-        <img src={spread.image} alt={spread.alt ?? ''} draggable={false} /><span>{spread.label}</span>{spread.caption && <small>{spread.caption}</small>}
-      </button>)}</div> : <div
+      {grid ? <ImageStackGrid spreads={spreads} activeId={activeId} onReorder={onReorder} onOpen={next => { setGrid(false); go(next, easeInOut, true) }}/> : <div
         ref={stageRef}
         className="jsc-stage"
         data-zoomed={zoom.scale > 1 ? '' : undefined}

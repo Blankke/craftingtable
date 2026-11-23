@@ -65,7 +65,7 @@ test('拖放、图片比例和标记笔记形成可撤销的操作', async () =>
     const separator = await page.getByRole('separator', { name: '调整侧栏宽度' }).boundingBox();
     await page.mouse.move(separator!.x + 3, separator!.y + 80); await page.mouse.down(); await page.mouse.move(separator!.x - 40, separator!.y + 80, { steps: 8 }); await page.mouse.up();
     await expect.poll(async () => (await page.locator('.canvas').boundingBox())!.width).toBeLessThan(box!.width);
-    const asset = page.locator('.asset').filter({ hasText: 'sample.png' }); await asset.scrollIntoViewIfNeeded();
+    const asset = page.locator('.asset').filter({ hasText: 'sample-001.png' }); await asset.scrollIntoViewIfNeeded();
     const assetBox = await asset.boundingBox();
     await page.mouse.move(assetBox!.x + 30, assetBox!.y + 20); await page.mouse.down(); await page.mouse.move(400, 300, { steps: 10 });
     await expect(page.locator('.canvas')).toHaveAttribute('data-placement-preview', 'image');

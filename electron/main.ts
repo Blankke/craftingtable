@@ -235,6 +235,18 @@ else app.whenReady().then(() => {
     const selected = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'] });
     return selected.canceled ? { assets: [], errors: [] } : importPaths(selected.filePaths);
   });
+  ipcMain.handle('assets:reveal', (event, assetPath: unknown) => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !projectFolder) throw Error('未打开项目');
+    const relative = z.string().min(1).parse(assetPath).replaceAll('\\', '/');
+    if (!relative.startsWith('assets/') || path.isAbsolute(relative)) throw Error('素材路径无效');
+    const project = realpathSync(projectFolder), assets = realpathSync(path.join(project, 'assets'));
+    const candidate = path.resolve(project, relative);
+    const inside = (root: string, file: string) => { const part = path.relative(root, file); return !!part && part !== '..' && !part.startsWith('..' + path.sep) && !path.isAbsolute(part); };
+    if (!inside(project, assets) || !inside(assets, candidate)) throw Error('素材路径无效');
+    const file = realpathSync(candidate);
+    if (!inside(assets, file) || !statSync(file).isFile()) throw Error('素材文件不存在或路径无效');
+    shell.showItemInFolder(file);
+  });
   ipcMain.handle('assets:remove', (_event, assetPath: unknown) => {
     if (!projectFolder) throw Error('未打开项目');
     return call({ method: 'removeAsset', folder: projectFolder, assetPath: z.string().min(1).parse(assetPath) });
@@ -353,12 +365,12 @@ else app.whenReady().then(() => {
           { name: 'smoke.png', kind: 'image', args: ['-f', 'lavfi', '-i', 'color=c=blue:s=160x90:d=1', '-frames:v', '1'] },
           { name: 'smoke.txt', kind: 'text' }
         ];
-        const importedAssets: { id: string; path: string; kind: string; durationUs?: number; content?: string }[] = [];
+        const importedAssets: { id: string; name: string; path: string; kind: string; durationUs?: number; content?: string }[] = [];
         for (const sample of samples) {
           const source = path.join(result.folder, sample.name);
           if (sample.args) execFileSync(ffmpeg, ['-v', 'error', ...sample.args, '-y', source], { timeout: 20_000 });
           else writeFileSync(source, '中文创作说明', 'utf8');
-          const imported = await call({ method: 'import', folder: result.folder, source }) as { id: string; path: string; kind: string; durationUs?: number; content?: string };
+          const imported = await call({ method: 'import', folder: result.folder, source }) as { id: string; name: string; path: string; kind: string; durationUs?: number; content?: string };
           if (imported.kind !== sample.kind) throw Error(`${sample.name} 类型识别错误`);
           if ((sample.kind === 'audio' || sample.kind === 'video') && (!imported.durationUs || imported.durationUs < 800_000)) throw Error(`${sample.name} 时长探测失败`);
           if (sample.kind === 'text' && imported.content !== '中文创作说明') throw Error('UTF-8 文本读取失败');
@@ -626,7 +638,7 @@ else app.whenReady().then(() => {
           for (let attempt = 0; attempt < 100 && !document.querySelector('.asset-list'); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
           let previewsReady = false;
           for (let attempt = 0; attempt < 100; attempt++) {
-            const image = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('smoke.jpg'))?.querySelector('img.asset-preview');
+            const image = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes(${JSON.stringify(importedAssets.find(asset => asset.kind === 'image')!.name)}))?.querySelector('img.asset-preview');
             const video = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('smoke.mp4'))?.querySelector('img.asset-preview');
             const audio = [...document.querySelectorAll('.asset')].find(item => item.textContent.includes('smoke.wav'))?.querySelector('.asset-preview-empty');
             if (image?.naturalWidth > 0 && video?.naturalWidth > 0 && audio) { previewsReady = true; break; }

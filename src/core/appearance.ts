@@ -34,3 +34,17 @@ export function restoredImageRatio(crop: { width: number; height: number } | und
   if (crop) return (crop.width * naturalWidth) / (crop.height * naturalHeight);
   return naturalWidth / naturalHeight;
 }
+
+/** 从四角缩放，固定对角的世界位置；旋转、比例锁和画笔点均沿用统一尺寸逻辑。 */
+export function resizeFromCorner(source: CanvasObject, corner: 'nw' | 'ne' | 'sw' | 'se', dx: number, dy: number): CanvasObject {
+  const copy = structuredClone(source), angle = (source.rotation ?? 0) * Math.PI / 180;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const localX = dx * cos + dy * sin, localY = -dx * sin + dy * cos;
+  const sx = corner.includes('w') ? -1 : 1, sy = corner.includes('n') ? -1 : 1;
+  resizeObject(copy, source.width + sx * localX, source.height + sy * localY, Math.abs(localX / source.width) >= Math.abs(localY / source.height) ? 'width' : 'height');
+  const cx = sx * (copy.width - source.width) / 2, cy = sy * (copy.height - source.height) / 2;
+  copy.x += cx * cos - cy * sin - (copy.width - source.width) / 2;
+  copy.y += cx * sin + cy * cos - (copy.height - source.height) / 2;
+  if (copy.kind === 'stroke') copy.points = copy.points.map(point => ({ x: point.x + copy.x - source.x, y: point.y + copy.y - source.y }));
+  return copy;
+}

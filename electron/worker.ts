@@ -1,3 +1,5 @@
+import { createNumberedImage } from './assetFiles';
+import { constants as fsConstants } from 'node:fs';
 // 后台只处理项目文件和素材；编辑器事实仍由渲染进程持有。
 import { mkdir, readFile, readdir, rename, copyFile, stat, open, rm, realpath, writeFile } from 'node:fs/promises';
 import { mediaToolPath } from './mediaTools';
@@ -354,10 +356,8 @@ async function handle(raw: unknown): Promise<unknown> {
       : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' ? '.webp' : null;
     if (!extension) throw Error('不支持的剪贴板图片格式');
     const id = crypto.randomUUID();
-    const relative = `assets/${id}${extension}`;
-    await mkdir(path.join(request.folder, 'assets'), { recursive: true });
-    await writeFile(path.join(request.folder, relative), bytes, { flag: 'wx' });
-    return { id, name: `${path.parse(request.name || '粘贴图片').name}${extension}`, path: relative, kind: 'image', status: 'ready' };
+    const name = await createNumberedImage(path.join(request.folder, 'assets'), request.name, extension, destination => writeFile(destination, bytes, { flag: 'wx' }));
+    return { id, name, path: `assets/${name}`, kind: 'image', status: 'ready' };
   }
   const source = request.source;
   const originalName = path.basename(source);
@@ -366,6 +366,10 @@ async function handle(raw: unknown): Promise<unknown> {
   if (!kind) throw Error('不支持的素材类型');
   if (request.method === 'relink' && kind !== request.expectedKind) throw Error('重新关联文件的类型不匹配');
   if (!(await stat(source)).isFile()) throw Error('请拖入文件，不支持文件夹');
+  if (kind === 'image') {
+    const name = await createNumberedImage(path.join(request.folder, 'assets'), originalName, extension, destination => copyFile(source, destination, fsConstants.COPYFILE_EXCL));
+    return { id: crypto.randomUUID(), name, path: `assets/${name}`, kind, status: 'ready' };
+  }
   const fileName = `${crypto.randomUUID()}${extension}`;
   const destination = path.join(request.folder, 'assets', fileName);
   await mkdir(path.dirname(destination), { recursive: true });

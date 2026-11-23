@@ -87,7 +87,16 @@ export class Editor {
     this.previewBase = null;
     this.emit();
   }
-  undo(): void { if (this.previewBase) { this.cancelPreview(); return; } const prior = this.undoStack.pop(); if (!prior) return; this.redoStack.push(this.current); this.current = { ...prior, revision: this.current.revision + 1 }; this.emit(); }
+  undo(): void {
+    if (this.previewBase) {
+      const changed = this.current !== this.previewBase;
+      this.cancelPreview();
+      // 无改动的预览不应吞掉一次撤销，合并/拆分仍由实际提交历史恢复。
+      if (changed) return;
+    }
+    const prior = this.undoStack.pop(); if (!prior) return;
+    this.redoStack.push(this.current); this.current = { ...prior, revision: this.current.revision + 1 }; this.emit();
+  }
   redo(): void { const next = this.redoStack.pop(); if (!next) return; this.undoStack.push(this.current); this.current = { ...next, revision: this.current.revision + 1 }; this.emit(); }
   deleteObjects(ids: string[]): void {
     this.execute(draft => {
@@ -242,6 +251,24 @@ export class Editor {
       this.pruneEmptyGroups(draft);
     });
     return id;
+  }
+  reorderStackImage(id: string, imageId: string, targetId: string): void {
+    this.execute(draft => {
+      const stack = draft.objects.find(object => object.id === id);
+      if (stack?.kind !== 'imageStack' || stack.locked) return;
+      const from = stack.images.findIndex(image => image.id === imageId), to = stack.images.findIndex(image => image.id === targetId);
+      if (from < 0 || to < 0 || from === to) return;
+      const cover = stack.images[0];
+      const scaleX = stack.width / cover.width, scaleY = stack.height / cover.height;
+      stack.images.splice(to, 0, stack.images.splice(from, 1)[0]);
+      if (stack.images[0] === cover) return;
+      // 新封面使用自身尺寸；补偿旋转中心变化，拆开后每张图的世界坐标和比例保持不变。
+      const width = stack.images[0].width * scaleX, height = stack.images[0].height * scaleY;
+      const dx = (width - stack.width) / 2, dy = (height - stack.height) / 2, angle = (stack.rotation ?? 0) * Math.PI / 180;
+      stack.x += dx * Math.cos(angle) - dy * Math.sin(angle) - dx;
+      stack.y += dx * Math.sin(angle) + dy * Math.cos(angle) - dy;
+      stack.width = width; stack.height = height;
+    });
   }
   unstackImages(id: string): string[] {
     const restored: string[] = [];

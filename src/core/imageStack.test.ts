@@ -90,4 +90,38 @@ describe('图片叠放', () => {
     expect(editor.document.objects).toEqual(before.objects);
     expect(editor.document.connections).toEqual(before.connections);
   });
+  it('排序首图保留不同尺寸图片的世界几何、备注和连接，并支持撤销重做', () => {
+    const { editor, images } = fixture();
+    editor.execute(draft => { draft.objects[1].width = 340; draft.objects[1].height = 95; });
+    const id = editor.stackImages(images.map(image => image.id));
+    editor.execute(draft => { const stack = draft.objects[0]; stack.width *= 1.7; stack.height *= .8; stack.rotation = 37; stack.x += 40; });
+    const before = editor.document;
+    const expected = new Editor(before); expected.unstackImages(id);
+    editor.reorderStackImage(id, images[0].id, images[2].id);
+    const sorted = editor.document.objects[0];
+    if (sorted.kind !== 'imageStack') throw Error('叠图丢失');
+    expect(sorted.images.map(image => image.id)).toEqual([images[1].id, images[2].id, images[0].id]);
+    expect(sorted.images[2].caption).toBe(images[0].caption);
+    expect(editor.document.connections).toEqual(before.connections);
+    editor.undo(); expect(editor.document.objects).toEqual(before.objects);
+    editor.redo(); editor.unstackImages(id);
+    for (const actual of editor.document.objects) {
+      const previous = expected.document.objects.find(image => image.id === actual.id)!;
+      for (const key of ['x', 'y', 'width', 'height', 'rotation'] as const) expect(actual[key]).toBeCloseTo(previous[key]!);
+    }
+  });
+  it('锁定、同位和无效身份排序不产生历史', () => {
+    const { editor, images } = fixture();
+    const id = editor.stackImages(images.map(image => image.id));
+    const before = editor.document;
+    editor.reorderStackImage(id, images[0].id, images[0].id);
+    editor.reorderStackImage(id, 'missing', images[0].id);
+    expect(editor.document).toBe(before);
+    editor.execute(draft => { draft.objects[0].locked = true; });
+    const locked = editor.document;
+    editor.reorderStackImage(id, images[0].id, images[1].id);
+    expect(editor.document).toBe(locked);
+    editor.undo(); expect(editor.document.objects[0].locked).toBeUndefined();
+  });
+
 });
