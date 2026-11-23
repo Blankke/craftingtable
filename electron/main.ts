@@ -142,10 +142,15 @@ else app.whenReady().then(() => {
     const document = await call({ method: 'open', folder: selected }); projectFolder = selected; return document;
   });
   // 首页只允许操作当前项目根目录直属的项目，避免渲染端传入任意路径。
-  const managedProjectFolder = (folder: unknown) => {
-    const selected = z.string().parse(folder);
-    if (!existsSync(selected)) throw Error('项目不存在或已被移除');
+  const managedProjectFolder = (folder: unknown, allowMissing = false) => {
+    const selected = path.resolve(z.string().parse(folder));
     const managedRoot = realpathSync(root);
+    // 即使目录已被移除，也先核对父目录，避免把任意外部路径当作可删除项目。
+    if (realpathSync(path.dirname(selected)) !== managedRoot) throw Error('项目位置无效');
+    if (!existsSync(selected)) {
+      if (allowMissing) return selected;
+      throw Error('项目不存在或已被移除');
+    }
     const managedFolder = realpathSync(selected);
     if (path.dirname(managedFolder) !== managedRoot || !statSync(managedFolder).isDirectory()) throw Error('项目位置无效');
     return managedFolder;
@@ -161,10 +166,10 @@ else app.whenReady().then(() => {
     return call({ method: 'rename', folder: selected, name: z.string().trim().min(1).max(100).parse(name) });
   });
   ipcMain.handle('projects:delete', (_event, folder: unknown) => {
-    const selected = managedProjectFolder(folder);
+    const selected = managedProjectFolder(folder, true);
     // 删除动作由页面二次确认后才会抵达这里；若删除当前项目，关闭其写入上下文。
     if (projectFolder && path.resolve(projectFolder) === selected) projectFolder = null;
-    rmSync(selected, { recursive: true, force: false, maxRetries: 2, retryDelay: 120 });
+    rmSync(selected, { recursive: true, force: true, maxRetries: 2, retryDelay: 120 });
     return true;
   });
   ipcMain.handle('projects:pick-folder', async () => {

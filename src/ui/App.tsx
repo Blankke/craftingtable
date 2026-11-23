@@ -42,6 +42,28 @@ export function App() {
   const ink = colorToHex(tokens.foreground);
   const accent = colorToHex(tokens.primary);
   const [projects, setProjects] = useState<Awaited<ReturnType<typeof api.listProjects>>>([]);
+  const projectsRequest = useRef(0);
+  const deletingProjects = useRef(new Set<string>());
+  async function refreshProjects() {
+    const request = ++projectsRequest.current;
+    const items = await api.listProjects();
+    if (request === projectsRequest.current) setProjects(items);
+  }
+  async function deleteProject(project: { folder: string; name: string }) {
+    if (deletingProjects.current.has(project.folder)) return;
+    if (!confirm(`确定删除项目“${project.name}”吗？此操作会删除项目目录及其中的素材，且无法恢复。`)) return;
+    deletingProjects.current.add(project.folder); ++projectsRequest.current; setHomeError('');
+    try {
+      await api.deleteProject(project.folder);
+      // 删除成功先移除卡片；刷新失败也不能让已删除项目重新出现在首页。
+      setProjects(items => items.filter(item => item.folder !== project.folder));
+      setRetryProjectPath(current => current === project.folder ? null : current);
+    } catch (error) { setHomeError(String(error)); }
+    finally {
+      await refreshProjects().catch(error => setHomeError(String(error)));
+      deletingProjects.current.delete(project.folder);
+    }
+  }
   const [homeMenu, setHomeMenu] = useState(false);
   const [creating, setCreating] = useState(false);
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
@@ -97,7 +119,7 @@ export function App() {
   const copiedIds = useRef<string[]>([]);
   const spacePanUsed = useRef(false);
   const spacePressed = useRef(false);
-  useEffect(() => { api.listProjects().then(setProjects).catch(error => setHomeError(`${t('读取项目失败', 'Could not load projects')}：${String(error)}`)); }, []);
+  useEffect(() => { void refreshProjects().catch(error => setHomeError(`${t('读取项目失败', 'Could not load projects')}：${String(error)}`)); }, []);
   useEffect(() => {
     if (!folder || !canvasRef.current) return;
     const observer = new ResizeObserver(entries => { const box = entries[0].contentRect; setViewport({ width: box.width, height: box.height }); });
@@ -141,15 +163,15 @@ export function App() {
     try {
       if (renamingFolder) {
         await api.renameProject(renamingFolder, name);
-        setProjects(await api.listProjects()); setRenamingFolder(null); setProjectName('');
+        await refreshProjects(); setRenamingFolder(null); setProjectName('');
         return;
       }
       const created = await api.createProject(name);
       const next = new Editor(newDocument(name));
       await api.saveProject(next.document);
-      const list = await api.listProjects();
+      await refreshProjects();
       resetInteraction(); setPlayback(null); setRecoveredProject(false); setFolder(created); setEditor(next); dismissSplash();
-      setProjects(list); setCreating(false); setHomeMenu(false); setHomeError(''); setProjectName('');
+      setCreating(false); setHomeMenu(false); setHomeError(''); setProjectName('');
     } catch (error) { setHomeError(`${t('新建项目失败', 'Could not create project')}：${String(error)}`); }
     finally { creatingLock.current = false; setCreatingPending(false); }
   }
@@ -333,7 +355,7 @@ export function App() {
     addEventListener('keydown', keyDown); addEventListener('keyup', keyUp); addEventListener('mousedown', mouseDown);
     return () => { removeEventListener('keydown', keyDown); removeEventListener('keyup', keyUp); removeEventListener('mousedown', mouseDown); };
   });
-  const settings = <SettingsPanel onRootChange={async () => setProjects(await api.listProjects())} />;
+  const settings = <SettingsPanel onRootChange={refreshProjects} />;
   const themeButton = <button type="button" className="nav-icon-button" aria-label={t('主题', 'Themes')} title={t('主题', 'Themes')} onClick={() => setThemeOpen(true)}><WorkbenchIcon name="palette" size={16} /><span>{t('主题', 'Themes')}</span></button>;
   const themeToggle = <ThemeToggle />;
   const themeModal = themeOpen ? <ThemePicker onClose={() => setThemeOpen(false)} /> : null;
@@ -370,10 +392,7 @@ export function App() {
         if (project.summary.assets) files.push({ name: t('素材', 'Assets'), meta: `${project.summary.assets} ${t('项素材', 'assets')}`, art: 'none', image: project.preview.media });
         if (project.summary.notes) files.push({ name: t('笔记', 'Notes'), meta: `${project.summary.notes} ${t('篇笔记', 'notes')}`, art: 'none', image: project.preview.note });
         const meta = project.status === 'invalid' ? t('项目文件无效', 'Invalid project') : files.length ? `${files.length} ${t('类内容', 'sections')}` : t('空项目', 'Empty project');
-        return <GlassFolderCard key={project.folder} label={name} meta={meta} files={files} onOpen={() => openProject(project.folder)} onReveal={() => { void api.revealProject(project.folder).catch(error => setHomeError(String(error))); }} onDelete={() => {
-          if (!confirm(`确定删除项目“${name}”吗？此操作会删除项目目录及其中的素材，且无法恢复。`)) return;
-          void api.deleteProject(project.folder).then(async () => setProjects(await api.listProjects())).catch(error => setHomeError(String(error)));
-        }} onRename={() => { setRenamingFolder(project.folder); setProjectName(name); setHomeError(''); }} />;
+        return <GlassFolderCard key={project.folder} label={name} meta={meta} files={files} onOpen={() => openProject(project.folder)} onReveal={() => { void api.revealProject(project.folder).catch(error => setHomeError(String(error))); }} onDelete={() => { void deleteProject(project); }} onRename={() => { setRenamingFolder(project.folder); setProjectName(name); setHomeError(''); }} />;
       })}
       <div className="home-create"><button className="project-card plus" aria-label={t('添加项目', 'Add project')} onClick={() => setHomeMenu(value => !value)}>+</button>
         {homeMenu && <div className="home-menu"><button onClick={() => { setHomeMenu(false); setCreating(true); setHomeError(''); }}>{t('新建项目', 'New project')}</button><button onClick={pickProjectFolder}>{t('打开项目文件夹', 'Open project folder')}</button></div>}
@@ -389,7 +408,7 @@ export function App() {
     {themeModal}
   </main>;
   return <div className="app" onContextMenu={event => event.preventDefault()} onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}><header className="workspace-header">
-    <nav className="workspace-nav-left" aria-label={t('工作台导航', 'Workbench navigation')}><button type="button" onClick={async () => { try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); setProjects(await api.listProjects()); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button><WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /></nav>
+    <nav className="workspace-nav-left" aria-label={t('工作台导航', 'Workbench navigation')}><button type="button" onClick={async () => { try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); await refreshProjects(); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button><WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /></nav>
     <div className="workspace-header-center"><strong>{document.name}</strong><span>{saveState === '已保存' ? t('已保存', 'Saved') : saveState === '未保存' ? t('未保存', 'Unsaved') : saveState === '保存失败' ? t('保存失败', 'Save failed') : t('已载入恢复快照，请保存', 'Recovery loaded; please save')}</span></div>
     <nav className="workspace-nav-actions" aria-label={t('编辑操作', 'Editing actions')}>
       {saveState === '保存失败' && <button type="button" onClick={() => { void autosave.current?.flush().catch(() => undefined); }}>{t('重试保存', 'Retry save')}</button>}
