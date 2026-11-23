@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { documentSchema, objectAssetIds, readProjectDocument } from '../src/core/document';
 import { buildProjectPreview, type ProjectPreview } from '../src/core/projectPreview';
-import { aggregatePeaks, encodeWaveform, WAVEFORM_SAMPLES_PER_SECOND, WAVEFORM_VERSION } from '../src/core/waveform';
+import { StreamingPeaks, type WaveformPeaks, encodeWaveform, WAVEFORM_SAMPLES_PER_SECOND, WAVEFORM_VERSION } from '../src/core/waveform';
 
 const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('list'), root: z.string() }),
@@ -102,21 +102,20 @@ async function probeDuration(file: string): Promise<number | undefined> {
   } catch { return undefined; }
 }
 
-async function decodePcm(file: string, signal: AbortSignal): Promise<{ pcm: Int16Array; sampleRate: number }> {
-  // 把音频解码为单声道 16-bit PCM；8 kHz 采样对 120 列/秒的峰值已足够，且大幅压缩内存占用。
+async function decodePeaks(file: string, signal: AbortSignal): Promise<WaveformPeaks> {
+  // 8 kHz 单声道 PCM 分块立即聚合；内存随峰值列增长，不保留原始 PCM 或拼接副本。
   return new Promise((resolve, reject) => {
     const child = spawn(mediaToolPath('ffmpeg'), ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-f', 's16le', 'pipe:1'], { windowsHide: true, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    const chunks: Buffer[] = [];
+    const peaks = new StreamingPeaks(8000, WAVEFORM_SAMPLES_PER_SECOND);
     let errorTail = '';
-    child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+    child.stdout.on('data', (chunk: Buffer) => peaks.push(chunk));
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => { errorTail = (errorTail + chunk).slice(-2000); });
     child.once('error', error => reject(signal.aborted ? Error('任务已取消') : error));
     child.once('close', code => {
       if (signal.aborted) return reject(Error('任务已取消'));
       if (code !== 0) return reject(Error(`音频解码失败：${errorTail.slice(-300)}`));
-      const buffer = Buffer.concat(chunks);
-      resolve({ pcm: new Int16Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.length / 2)), sampleRate: 8000 });
+      resolve(peaks.finish());
     });
   });
 }
@@ -141,10 +140,9 @@ async function analyzeMedia(request: Extract<z.infer<typeof requestSchema>, { me
       if (await stat(output).then(() => true).catch(() => false)) return;
       const temporary = `${output}.${crypto.randomUUID()}.tmp`;
       try {
-        const { pcm, sampleRate } = await decodePcm(source, signal);
-        durationUs = Math.round(pcm.length / sampleRate * 1_000_000) || durationUs;
-        const columns = aggregatePeaks(pcm, sampleRate, WAVEFORM_SAMPLES_PER_SECOND);
-        await writeFile(temporary, Buffer.from(encodeWaveform({ samplesPerSecond: WAVEFORM_SAMPLES_PER_SECOND, sampleRate, durationUs, columns })));
+        const peaks = await decodePeaks(source, signal);
+        durationUs = peaks.durationUs || durationUs;
+        await writeFile(temporary, Buffer.from(encodeWaveform({ ...peaks, durationUs })));
         await rename(temporary, output);
       } catch (error) { await rm(temporary, { force: true }); throw error; }
     });

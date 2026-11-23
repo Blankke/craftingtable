@@ -95,3 +95,42 @@ export function resampleColumns(peaks: WaveformPeaks, inUs: number, outUs: numbe
   }
   return result;
 }
+
+/** 流式接收 s16le 字节；只保留峰值，不在内存拼接整段 PCM。支持分块落在半个采样处。 */
+export class StreamingPeaks {
+  private storage = new Int16Array(0);
+  private samples = 0;
+  private lowByte: number | null = null;
+  constructor(readonly sampleRate: number, readonly samplesPerSecond: number) {
+    if (!Number.isFinite(sampleRate) || sampleRate <= 0 || !Number.isFinite(samplesPerSecond) || samplesPerSecond <= 0) throw Error('峰值采样率无效');
+  }
+  private reserve(columns: number): void {
+    if (this.storage.length >= columns * 2) return;
+    const next = new Int16Array(Math.max(columns * 2, this.storage.length * 2, 1024));
+    next.set(this.storage);
+    for (let i = this.storage.length; i < next.length; i += 2) { next[i] = 32767; next[i + 1] = -32768; }
+    this.storage = next;
+  }
+  private sample(low: number, high: number): void {
+    const column = Math.floor(this.samples * this.samplesPerSecond / this.sampleRate);
+    this.reserve(column + 1);
+    const value = ((high << 8 | low) << 16) >> 16, offset = column * 2;
+    if (value < this.storage[offset]) this.storage[offset] = value;
+    if (value > this.storage[offset + 1]) this.storage[offset + 1] = value;
+    this.samples++;
+  }
+  push(bytes: Uint8Array): void {
+    let offset = 0;
+    if (this.lowByte !== null && bytes.length) { this.sample(this.lowByte, bytes[0]); this.lowByte = null; offset = 1; }
+    for (; offset + 1 < bytes.length; offset += 2) this.sample(bytes[offset], bytes[offset + 1]);
+    if (offset < bytes.length) this.lowByte = bytes[offset];
+  }
+  finish(): WaveformPeaks {
+    // 与整段聚合的末列边界一致；残缺的最后一个字节不构成采样。
+    const count = Math.max(1, Math.ceil(this.samples * this.samplesPerSecond / this.sampleRate));
+    this.reserve(count);
+    const columns = this.storage.slice(0, count * 2);
+    for (let i = 0; i < columns.length; i += 2) if (columns[i] > columns[i + 1]) { columns[i] = 0; columns[i + 1] = 0; }
+    return { columns, sampleRate: this.sampleRate, samplesPerSecond: this.samplesPerSecond, durationUs: Math.round(this.samples / this.sampleRate * 1_000_000) };
+  }
+}

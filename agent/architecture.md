@@ -11,7 +11,7 @@
 ## 目录职责
 
 - `src/core/mediaAnalysis.ts` 与 `src/ui/media/useMediaAnalysis.ts`：每条轨道按媒体输入独立调度，后台读取编辑器最近提交的文档；无关编辑与数值预览不取消任务，新抽帧完成前保留已有结果，过期响应不能覆盖新任务。
-- `src/core/`：项目文档模型、校验、编辑命令、自动保存和时间刻度；文档是编辑器的单一事实来源。自动保存保留载入修订号，并在订阅建立时检查当前快照，覆盖首帧快速操作。
+- `src/core/`：项目文档模型、校验、编辑命令、自动保存和时间刻度；文档是编辑器的单一事实来源。提交后的快照按不可变数据读取；`shareSnapshot.ts` 只在已校验副本中复用未变分支，后续编辑仍复制草稿，完整撤销历史不截断。相机通过 `Editor.updateCamera` 仅复制和校验相机字段，保留修订、保存和撤销语义。自动保存保留载入修订号，并在订阅建立时检查当前快照，覆盖首帧快速操作。
 - `src/ui/`：`App.tsx` 编排应用；`home/`、`notes/`、`canvas/`、`media/`、`theme/`、`workspace/` 分别组织首页、笔记、画布、媒体、主题和分栏；共用控件、语言与设置放在 `shared/`，全局样式放在 `styles/`。测试与模块就近放置，避免平铺或重复入口。
 - `src/types/`：第三方 Markdown 插件的补充类型声明；Vite 环境和桌面桥接声明保留在 `src/vite-env.d.ts`。
 - `src/ui/workspace/WorkspaceDock.tsx`、`src/ui/workspace/dockLayout.ts`：顶部视图开关、侧栏收起、面板展开/还原与分栏；每块面板由固定标题和独立滚动内容组成。侧栏宽度与三块面板高度写入 localStorage；高度分配先满足最小值，再按比例分配剩余空间，拖动只调整相邻两块。画布 ResizeObserver 在切换模式后重新订阅可用空间。
@@ -21,10 +21,11 @@
 - `src/core/appearance.ts`、`src/core/shapeGeometry.ts`、`src/ui/canvas/ObjectAppearance.tsx`、`src/ui/canvas/ObjectInspector.tsx`：统一处理图形样式、文字、尺寸及图片裁剪；`shapeGeometry.ts` 是固定图库的单一几何来源，画布、工具图标和首页预览均复用它。
 - `src/core/richText.ts`：笔记与画布共用的结构化正文契约；`canvasText.ts` 负责画布 Markdown 导入、纯文本提取和安全 HTML 输出。`CanvasTextEditor.tsx` 为画布与侧栏提供同一 Tiptap 输入组件；`canvasTextLayout.ts` 和 `canvasText.css` 统一 DOM 测量、编辑排版及 SVG 字形。字形作为 Konva 图片绘制，遵循对象叠放顺序；文本框增高与正文修改在同一编辑事务中完成，形状只扩展文字绘制范围。
 - `src/ui/shared/ContextMenu.tsx`、`CommandDialog.tsx` 统一右键浮层与字段对话框；菜单支持子菜单翻转、窗口限位、滚动、键盘和焦点返回。`RichTextContextMenu.tsx` 保存并同步恢复 ProseMirror 焦点与选区，字段对话框在解除模态后执行恢复，避免下一帧 focus 覆盖后续按键产生的选区；`FormattingShortcuts.ts` 统一笔记和画布正文快捷键；剪贴板命令通过主进程固定白名单调用，PNG/SVG 使用当前 Electron ClipboardItem 原子写入多种格式。Electron 45 的 `image/*` 写入路径仅解码位图，SVG 通过 `electron application/osclipboard` 写入 Chromium 对应的原生格式（Windows/Linux 为 `image/svg+xml`，macOS 为 `public.svg-image`），同时保留 PNG 和纯文本。
+- `src/core/boundedCache.ts`：按访问顺序和权重淘汰的缓存；文字高度共享缓存限制 300 项/2 MiB，配色缓存限制条目数与字符串预算，波形限制 128 项/16 MiB 并在画布项目卸载/切换时清空。使用中的波形继续由组件持有，失败请求不永久缓存。文字正文 HTML 以不可变正文为 WeakMap 键，正文释放后缓存随之回收。
 - `src/core/canvasColors.ts`：按主题背景和对象填充派生显示色，以 OKLCH 亮度调整补足文字及线条对比度；保留项目原始配色，切换主题不增加修订，也不改图片和视频像素。
-- `src/ui/canvas/interactionStore.ts` 统一持有工具及持续使用状态；双击或工具按钮上的 Shift+Enter 启用，创建完成通过 `finishTool` 决定保留工具，Esc、显式切换及项目切换清除状态。`CanvasStage` 支持持续文本的点击/拖框与原位输入；选区在独立顶层绘制，轮廓、角点及缩放柄按相机比例反算尺寸，保持固定屏幕线宽并独立于对象透明度。
+- `src/ui/canvas/interactionStore.ts` 统一持有工具及持续使用状态；双击或工具按钮上的 Shift+Enter 启用，创建完成通过 `finishTool` 决定保留工具，Esc、显式切换及项目切换清除状态。`CanvasStage` 按不可变数组建立素材、笔记、标记索引，非变化对象由 memo 跳过子树重建，稳定事件委托读取最新回调；支持持续文本的点击/拖框与原位输入；选区在独立顶层绘制，轮廓、角点及缩放柄按相机比例反算尺寸，保持固定屏幕线宽并独立于对象透明度。
 - `CanvasObjectMenu.tsx` 提供所有画布对象及连接线的右键入口，按选区能力显示剪贴板、组合、锁定、层级、样式、数据、链接、连接点和叠图操作；`ImageStackViewer.tsx` 通过原生模态对话框承载用户提供的 `vendor/JournalSpreadCarousel.tsx` 双页折叠组件。图片使用项目素材协议，每图备注通过编辑器连续预览、失焦或翻页一次提交；浏览器支持拖动、方向键、缩略图列表、明暗主题和减少动态效果，模态内输入不触发画布快捷键。查看器使用 96vw/96vh 可用窗口，按当前图片自然比例适应；缩放与平移只存在本地组件状态，围绕指针缩放并限制拖动边界，放大后拖动当前图片，翻页重置缩放。尺寸观察与翻页帧循环独立清理，避免图片比例变化打断动画。
-- `src/core/waveform.ts`：单声道 PCM 峰值聚合、带版本头的二进制缓存编解码与按屏幕像素重采样（包含相机缩放与设备像素比），后台 worker 与渲染端共用；删除固定 PNG 波形方案。
+- `src/core/waveform.ts`：单声道 PCM 峰值聚合、带版本头的二进制缓存编解码与按屏幕像素重采样（包含相机缩放与设备像素比），后台 worker 与渲染端共用；删除固定 PNG 波形方案。`StreamingPeaks` 按 s16le 字节分块接收 FFmpeg 输出并立即聚合，处理半个采样跨块的情况，峰值列边界和原整段算法一致，不再保留整段 PCM 及拼接副本。
 - `src/core/theme.ts`、`src/ui/theme/themeStore.ts`、`src/ui/theme/ThemePicker.tsx`：主题 Token（以 oklch 为权威值，含明暗两套）、颜色换算（oklch↔sRGB）、主题持久化与选择界面；`useTheme()` 提供当前 Token，CSS 变量由 `applyCssVars` 注入。设置面板中的“强制播放动画”也由主题存储持久化，并以根节点属性覆盖系统的减少动态效果偏好。
 - `src/core/elementStyles.ts`、`src/core/pantone.ts`、`src/ui/theme/ColorEditor.tsx`、`src/ui/canvas/ConnectionInspector.tsx`、`src/ui/canvas/ShapeIcon.tsx`：元素样式预设、箭头线型/头部样式、Pantone 年度色库、统一颜色弹层（主题色/Pantone/自定义）、连接线样式编辑与工具区无填充描边轮廓预览。
 - 图库按 General、Basic、Arrows、Flowchart 四类组织，可折叠和搜索；固定的图形标识、工具预览、画布和首页预览复用 `shapeGeometry.ts` 的几何定义，避免预览退化为方块。
@@ -43,6 +44,7 @@
 - 首页列表只读项目文档，按修订缓存由实际对象生成的 SVG 预览和 FFmpeg 媒体缩略图；画布预览复现项目保存的最后相机视口，列出项目不切换活动项目。音频波形缓存为带版本头的单声道 PCM 峰值二进制文件，画布按裁剪区间与 pixelsPerSecond 重采样到像素列并以单条 Konva Shape 绘制 1px 峰值线，改色与时间缩放不重新分析素材。
 - `electron/mediaTools.ts`：主进程与后台共用平台媒体工具路径；开发使用 `vendor/win-x64` 或 `vendor/linux-x64`，发行包放在 resources/vendor。`scripts/build/prepare-media.mjs` 依据固定下载清单校验归档和工具 SHA-256，支持断点续传。
 - `scripts/build/`：Electron 编译、Hello 路径、图标生成和媒体工具准备；`scripts/dev/`：免安装桌面入口；`scripts/test/`：完整回归与冒烟入口。所有 npm 命令从仓库根目录运行，脚本资源路径随目录统一更新。
+- `scripts/test/profile-performance.mjs`：独立项目的可复现性能采样，固定 150% 缩放及软件渲染，分别记录核心算法、撤销历史 JS 堆、300 对象画布的滚轮帧时间与各 Electron 进程内存；结果和截图位于 `test-results/performance/`。核心采样使用当前源码，画布采样使用当前构建，入口 `npm run profile:performance -- sample` 会先统一构建。
 - `scripts/test/smoke-desktop.mjs`：开发与打包程序共用冒烟入口；每次使用独立项目目录并核对本次结果。Windows 安装验收脚本在临时目录完成安装、图标、冒烟与卸载，图标提取使用独立进程避免资源句柄占用 EXE。
 - `scripts/visual/`：首页、工作台、模式切换及发布修复的可复现验收脚本，默认使用 Electron。工作台脚本的 `--browser` 使用内存 IPC 夹具，仅作为 UI 检查。截图存入 `test-results/`，脚本退出时释放本次临时项目。
 - `scripts/maintenance/clean.mjs`：`clean:test` 只清理截图和测试报告；`clean` 同时清理构建输出、Vite 缓存、媒体解压副本与旧渲染缓存，`--dry-run` 只预览。固定白名单保留用户项目、本机设置、依赖、媒体可执行文件与下载归档，预检所有目标及父目录以拒绝符号链接或目录联接。

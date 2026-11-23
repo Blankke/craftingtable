@@ -15,9 +15,11 @@ export class MediaAnalysisController {
   reconcile(document: ProjectDocument, retry = false): void {
     if (this.disposed) return;
     const desired = new Map<string, { key: string; request: Omit<AnalysisRequest, 'taskId'> }>();
+    const assets = new Map<string, ProjectDocument['assets'][number]>();
+    for (const asset of document.assets) if (!assets.has(asset.id)) assets.set(asset.id, asset);
     for (const object of document.objects) {
       if (object.kind !== 'media') continue;
-      const asset = document.assets.find(item => item.id === object.assetId);
+      const asset = assets.get(object.assetId);
       if (!asset || asset.status === 'missing' || (asset.kind !== 'audio' && asset.kind !== 'video')) continue;
       const request = { assetId: asset.id, assetPath: asset.path, kind: asset.kind, inUs: object.inUs, outUs: object.outUs, pixelsPerSecond: object.pixelsPerSecond };
       // 音频整段峰值只依赖源文件；视频抽帧额外依赖裁剪区间与时间比例。

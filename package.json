@@ -36,7 +36,8 @@
     "dist:linux": "npm run build && npm run prepare:media && electron-builder --linux AppImage deb rpm --x64 --publish never",
     "dist:linux:docker": "node scripts/build/build-linux-container.mjs",
     "release:checksums": "node scripts/build/release-checksums.mjs",
-    "visual:release": "node scripts/visual/preview-release.mjs"
+    "visual:release": "node scripts/visual/preview-release.mjs",
+    "profile:performance": "npm run build && node scripts/test/profile-performance.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.0.0",

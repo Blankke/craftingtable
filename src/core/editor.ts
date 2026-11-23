@@ -1,3 +1,4 @@
+import { shareSnapshot } from './shareSnapshot';
 import { documentSchema, objectAssetIds, objectMemberIds, type CanvasObject, type ConnectionStyle, type ProjectDocument, validateRelations } from './document';
 import { newNote, noteAssetIds, noteAnnotationIds, refreshAnnotationReferences, type Note } from './note';
 import type { RichTextDocument } from './richText';
@@ -34,6 +35,17 @@ export class Editor {
   get canRedo(): boolean { return this.redoStack.length > 0; }
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   private emit(): void { this.listeners.forEach(listener => listener()); }
+  // 相机变化不影响对象与引用关系；只复制并校验相机，仍按原粒度保存、撤销和递增修订。
+  updateCamera(change: (camera: ProjectDocument['camera']) => void): void {
+    if (this.previewBase) this.commitPreview();
+    const camera = { ...this.current.camera };
+    change(camera);
+    const next = documentSchema.shape.camera.parse(camera), old = this.current.camera;
+    if (next.x === old.x && next.y === old.y && next.scale === old.scale) return;
+    this.undoStack.push(this.current); this.redoStack = [];
+    this.current = { ...this.current, camera: next, revision: this.current.revision + 1 };
+    this.emit();
+  }
   execute(change: (draft: ProjectDocument) => void): void {
     if (this.previewBase) this.commitPreview();
     const draft = structuredClone(this.current);
@@ -41,11 +53,12 @@ export class Editor {
     draft.objects.forEach(this.normalizeObject);
     validateRelations(draft);
     documentSchema.parse(draft);
-    if (JSON.stringify(draft) === JSON.stringify(this.current)) return;
+    const shared = shareSnapshot(this.current, draft);
+    if (shared === this.current) return;
     this.undoStack.push(this.current);
     this.redoStack = [];
-    draft.revision = this.current.revision + 1;
-    this.current = draft;
+    shared.revision = this.current.revision + 1;
+    this.current = shared;
     this.emit();
   }
   preview(change: (draft: ProjectDocument) => void): void {
@@ -55,14 +68,14 @@ export class Editor {
     draft.objects.forEach(this.normalizeObject);
     validateRelations(draft);
     documentSchema.parse(draft);
-    this.current = draft;
+    this.current = shareSnapshot(this.previewBase, draft);
     this.emit();
   }
   commitPreview(): void {
     const base = this.previewBase;
     if (!base) return;
     this.previewBase = null;
-    if (JSON.stringify(base) === JSON.stringify(this.current)) return;
+    if (base === this.current) return;
     this.undoStack.push(base);
     this.redoStack = [];
     this.current = { ...this.current, revision: base.revision + 1 };

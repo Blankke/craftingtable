@@ -129,6 +129,7 @@ PowerShell 的执行策略限制 `npm.ps1` 时，使用 `npm.cmd`。`dev` 启动
 | `npm run test:unit` | 类型检查与单元测试。 |
 | `npm run smoke` | 用实际桌面进程验证项目读写、媒体和恢复。 |
 | `npm run verify` | 单元测试、工程脚本测试及 Electron 端到端测试。 |
+| `npm run profile:performance -- sample` | 用 300 个富文本对象测量撤销历史内存、排版/配色耗时及滚轮帧耗时；结果与截图写入 `test-results/performance/`。 |
 | `npm run visual:release` | 复现媒体稳定性、比例锁、图标及开屏验收，覆盖两种主题和缩放。 |
 | `npm run dist:win` | 在 Windows 构建安装版与便携版 EXE。 |
 | `npm run dist:linux` | 在 Linux 构建 AppImage、DEB、RPM；需要 `binutils`（ar）、`rpm`/`rpmbuild` 和 `xz-utils`。 |

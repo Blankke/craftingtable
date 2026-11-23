@@ -155,19 +155,22 @@ export function validateRelations(document: ProjectDocument): void {
     if (object.kind === 'note' && !noteIds.has(object.noteId)) throw Error('对象笔记不存在');
     if (object.kind === 'media' && object.inUs >= object.outUs) throw Error('裁剪区间无效');
   }
-  for (const marker of document.markers) if (document.objects.find(item => item.id === marker.mediaId)?.kind !== 'media') throw Error('标记轨道不存在');
+  const objectsById = new Map(document.objects.map(object => [object.id, object]));
+  for (const marker of document.markers) if (objectsById.get(marker.mediaId)?.kind !== 'media') throw Error('标记轨道不存在');
   for (const connection of document.connections) for (const anchor of [connection.from, connection.to]) {
     if (anchor.kind === 'object' && !objectIds.has(anchor.objectId)) throw Error('连线对象不存在');
     if (anchor.kind === 'time' && !markerIds.has(anchor.markerId)) throw Error('连线标记不存在');
   }
   for (const group of document.groups) if (group.parentId && !groupIds.has(group.parentId)) throw Error('父分组不存在');
+  const groupsById = new Map<string, ProjectDocument['groups'][number]>();
+  for (const group of document.groups) if (!groupsById.has(group.id)) groupsById.set(group.id, group);
   for (const group of document.groups) {
     const seen = new Set([group.id]);
     let parentId = group.parentId;
     while (parentId) {
       if (seen.has(parentId)) throw Error('分组层级存在循环');
       seen.add(parentId);
-      parentId = document.groups.find(item => item.id === parentId)?.parentId ?? null;
+      parentId = groupsById.get(parentId)?.parentId ?? null;
     }
   }
 }

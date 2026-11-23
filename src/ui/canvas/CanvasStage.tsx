@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { BoundedCache } from '../../core/boundedCache';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Rect, Text, Line, Group, Image as KonvaImage, Circle, Path, RegularPolygon, Shape } from 'react-konva';
 import type Konva from 'konva';
 import { ObjectAppearance } from './ObjectAppearance';
@@ -74,7 +75,7 @@ function ImageContent({ path, width, height, x = 0, y = 0, host = 'asset', crop,
 }
 
 // 峰值文件按路径缓存一次解码结果；裁剪、缩放与改色只在内存重采样，不重复请求或分析音频。
-const waveformCache = new Map<string, Promise<WaveformPeaks | null>>();
+const waveformCache = new BoundedCache<string, Promise<WaveformPeaks | null>>(128, 16 * 1024 * 1024);
 function loadPeaks(path: string): Promise<WaveformPeaks | null> {
   let cached = waveformCache.get(path);
   if (!cached) {
@@ -82,7 +83,14 @@ function loadPeaks(path: string): Promise<WaveformPeaks | null> {
       .then(response => response.ok ? response.arrayBuffer() : null)
       .then(buffer => buffer ? decodeWaveform(buffer) : null)
       .catch(() => null);
-    waveformCache.set(path, cached);
+    waveformCache.set(path, cached, 0);
+    const pending = cached;
+    void pending.then(peaks => {
+      // 清空/淘汰后的请求不重新填充缓存；失败不永久缓存，之后可重试。
+      if (waveformCache.get(path) !== pending) return;
+      if (peaks) waveformCache.set(path, pending, peaks.columns.byteLength);
+      else waveformCache.delete(path);
+    });
   }
   return cached;
 }
@@ -121,7 +129,7 @@ function WaveformView({ path, color, x, y, width, height, inUs, outUs, scale }: 
   }} />;
 }
 
-function ObjectView({ object: sourceObject, hideText = false, scale, assetPath, assetName, assetKind, assets, analysis, markers, playheadUs, selected, trimMode, tool, note, onSelect, onSeek, onOpenStack }: {
+function ObjectViewContent({ object: sourceObject, hideText = false, scale, assetPath, assetName, assetKind, assets, analysis, markers, playheadUs, selected, trimMode, tool, note, onSelect, onSeek, onOpenStack }: {
   object: CanvasObject; hideText?: boolean; scale: number; assetPath?: string; assetName?: string; assetKind?: string; analysis?: MediaAnalysis; markers: ProjectDocument['markers']; playheadUs?: number; selected: boolean; tool: Tool;
   trimMode: boolean; note?: Note;
   assets?: ProjectDocument['assets']; onOpenStack?(id: string): void;
@@ -208,6 +216,16 @@ function ObjectView({ object: sourceObject, hideText = false, scale, assetPath, 
     {(selected || tool === 'arrow') && object.connectionPoints?.map(point => <Circle key={point.id} name={`connection-point:${point.id} editor-decoration`} x={point.x * width} y={point.y * object.height} radius={4 / scale} fill={accent} stroke={colorToHex(tokens.card)} strokeWidth={1 / scale} hitStrokeWidth={10 / scale}/>) }
   </Group>;
 }
+
+// 非变化对象跳过 React/Konva 子树重建；事件委托读取最新选区，避免 memo 留下过期闭包。
+const MemoObjectView = memo(ObjectViewContent);
+function ObjectView(props: Parameters<typeof ObjectViewContent>[0]) {
+  const latest = useRef(props); latest.current = props;
+  const onSelect = useCallback((additive: boolean) => latest.current.onSelect(additive), []);
+  const onSeek = useCallback((timeUs: number, play: boolean) => latest.current.onSeek(timeUs, play), []);
+  return <MemoObjectView {...props} onSelect={onSelect} onSeek={onSeek}/>;
+}
+const noMarkers: ProjectDocument['markers'] = [];
 
 /** 选区独立于素材透明度及叠放顺序，轮廓和手柄始终保持固定屏幕尺寸。 */
 function SelectionOutline({ object, scale, accent, surface, resizable }: { object: CanvasObject; scale: number; accent: string; surface: string; resizable: boolean }) {
@@ -314,6 +332,23 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
   const { tokens } = useTheme();
   const accent = colorToHex(tokens.primary);
   const fg = colorToHex(tokens.foreground);
+  const assetsById = useMemo(() => {
+    const map = new Map<string, ProjectDocument['assets'][number]>();
+    for (const asset of document.assets) if (!map.has(asset.id)) map.set(asset.id, asset);
+    return map;
+  }, [document.assets]);
+  const notesById = useMemo(() => {
+    const map = new Map<string, Note>();
+    for (const note of document.notes) if (!map.has(note.id)) map.set(note.id, note);
+    return map;
+  }, [document.notes]);
+  const markersByMedia = useMemo(() => {
+    const map = new Map<string, ProjectDocument['markers']>();
+    for (const marker of document.markers) { const markers = map.get(marker.mediaId) ?? []; markers.push(marker); map.set(marker.mediaId, markers); }
+    return map;
+  }, [document.markers]);
+  // 项目切换时释放全局峰值缓存，避免相同相对路径命中其他项目。
+  useEffect(() => () => waveformCache.clear(), [editor]);
   const playback = usePlaybackStore(state => state.playback);
   const setPlayback = usePlaybackStore(state => state.setPlayback);
   const selectedConnections = useInteractionStore(state => state.selectedConnections);
@@ -391,7 +426,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
       return;
     }
     if (active.kind === 'pan') {
-      editor.execute(draft => { draft.camera.x = stage.x(); draft.camera.y = stage.y(); });
+      editor.updateCamera(camera => { camera.x = stage.x(); camera.y = stage.y(); });
       return;
     }
     if (active.kind === 'marquee') {
@@ -619,16 +654,16 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
         return;
       }
       const pointer = stage?.getPointerPosition();
-      editor.execute(draft => {
+      editor.updateCamera(camera => {
         if (event.evt.ctrlKey && pointer) {
           // 保持指针下的世界坐标不动，避免缩放时画布跳移。
-          const worldX = (pointer.x - draft.camera.x) / draft.camera.scale;
-          const worldY = (pointer.y - draft.camera.y) / draft.camera.scale;
-          const scale = Math.min(4, Math.max(0.2, draft.camera.scale * (event.evt.deltaY > 0 ? 0.9 : 1.1)));
-          draft.camera.scale = scale;
-          draft.camera.x = pointer.x - worldX * scale;
-          draft.camera.y = pointer.y - worldY * scale;
-        } else { draft.camera.x -= event.evt.deltaX; draft.camera.y -= event.evt.deltaY; }
+          const worldX = (pointer.x - camera.x) / camera.scale;
+          const worldY = (pointer.y - camera.y) / camera.scale;
+          const scale = Math.min(4, Math.max(0.2, camera.scale * (event.evt.deltaY > 0 ? 0.9 : 1.1)));
+          camera.scale = scale;
+          camera.x = pointer.x - worldX * scale;
+          camera.y = pointer.y - worldY * scale;
+        } else { camera.x -= event.evt.deltaX; camera.y -= event.evt.deltaY; }
       });
     }}
     onDblClick={event => {
@@ -645,7 +680,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
       if (isTextObject(object)) setEditing({ id: object.id });
     }}>
     <Layer>
-      {visibleObjects.map(object => { const asset = 'assetId' in object ? document.assets.find(item => item.id === object.assetId) : undefined; const note = object.kind === 'note' ? document.notes.find(item => item.id === object.noteId) : undefined; return <ObjectView assets={document.assets} onOpenStack={setViewingStack} scale={document.camera.scale} key={object.id} object={object} tool={tool} selected={selected.includes(object.id) && editing?.id !== object.id} hideText={editing?.id === object.id} trimMode={trimMode && playback?.mediaId === object.id} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[object.id]} markers={document.markers.filter(marker => marker.mediaId === object.id)} playheadUs={playback?.mediaId === object.id ? playback.timeUs : undefined} note={note} onSelect={additive => onSelect(additive ? (selected.includes(object.id) ? selected.filter(id => id !== object.id) : [...selected, object.id]) : [object.id])} onSeek={(timeUs, play) => onPlayback(object.id, timeUs, play)} />; })}
+      {visibleObjects.map(object => { const asset = 'assetId' in object && object.assetId ? assetsById.get(object.assetId) : undefined; const note = object.kind === 'note' ? notesById.get(object.noteId) : undefined; return <ObjectView assets={document.assets} onOpenStack={setViewingStack} scale={document.camera.scale} key={object.id} object={object} tool={tool} selected={selected.includes(object.id) && editing?.id !== object.id} hideText={editing?.id === object.id} trimMode={trimMode && playback?.mediaId === object.id} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[object.id]} markers={(markersByMedia.get(object.id) ?? noMarkers)} playheadUs={playback?.mediaId === object.id ? playback.timeUs : undefined} note={note} onSelect={additive => onSelect(additive ? (selected.includes(object.id) ? selected.filter(id => id !== object.id) : [...selected, object.id]) : [object.id])} onSeek={(timeUs, play) => onPlayback(object.id, timeUs, play)} />; })}
     </Layer>
     <Layer listening={false}>
       {placementGhost && (() => {

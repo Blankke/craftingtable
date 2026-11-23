@@ -1,3 +1,4 @@
+import { BoundedCache } from './boundedCache';
 // 用法：canvasDisplayObject(object, tokens) 为当前主题派生画布样式，不改写保存的颜色。
 // 文字和线条按实际背景补足对比度；填充使用同色相的主题表面，照片与视频像素不参与转换。
 import type { CanvasObject } from './document';
@@ -14,7 +15,16 @@ export function canvasContrast(a: string, b: string): number {
   const x = luminance(first), y = luminance(second);
   return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
 }
+const inkCache = new BoundedCache<string, string>(1024, 256 * 1024);
+const fillCache = new BoundedCache<string, string>(256, 64 * 1024);
 export function canvasInk(color: string, backgrounds: string[], minimum = 4.5): string {
+  const key = JSON.stringify([color, backgrounds, minimum]), cached = inkCache.get(key);
+  if (cached !== undefined) return cached;
+  const result = computeInk(color, backgrounds, minimum);
+  inkCache.set(key, result, (key.length + result.length) * 2);
+  return result;
+}
+function computeInk(color: string, backgrounds: string[], minimum: number): string {
   const rgb = hexToRgb(colorToHex(color));
   if (!rgb) return color;
   const original = rgbToHex(rgb);
@@ -29,6 +39,13 @@ export function canvasInk(color: string, backgrounds: string[], minimum = 4.5): 
   return dark ? '#ffffff' : '#000000';
 }
 function canvasFill(color: string, background: string): string {
+  const key = JSON.stringify([color, background]), cached = fillCache.get(key);
+  if (cached !== undefined) return cached;
+  const result = computeFill(color, background);
+  fillCache.set(key, result, (key.length + result.length) * 2);
+  return result;
+}
+function computeFill(color: string, background: string): string {
   const rgb = hexToRgb(colorToHex(color));
   if (!rgb) return color;
   const { l, c, h } = rgbToOklch(rgb);

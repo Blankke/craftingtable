@@ -129,6 +129,7 @@ On PowerShell, use `npm.cmd` if the execution policy blocks `npm.ps1`. `dev` ope
 | `npm run test:unit` | Type-check and run unit tests. |
 | `npm run smoke` | Exercise the actual desktop app, project files, media and recovery. |
 | `npm run verify` | Run unit, tooling and Electron end-to-end checks. |
+| `npm run profile:performance -- sample` | Profile history memory, layout/color costs and wheel frame times with 300 rich-text objects; results and screenshots go to `test-results/performance/`. |
 | `npm run visual:release` | Reproduce media stability, proportion-lock, icon and splash checks at two scales and themes. |
 | `npm run dist:win` | Build Windows installer and portable EXE on Windows. |
 | `npm run dist:linux` | Build AppImage, DEB and RPM on Linux; requires `binutils` (ar), `rpm`/`rpmbuild` and `xz-utils`. |
