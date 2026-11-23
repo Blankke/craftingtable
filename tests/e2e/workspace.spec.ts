@@ -10,7 +10,7 @@ test('拖放、图片比例和标记笔记形成可撤销的操作', async () =>
   const root = await mkdtemp(path.join(os.tmpdir(), 'workbench-interaction-'));
   let app: ElectronApplication | undefined;
   try {
-    const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
+    const env: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
     app = await _electron.launch({ executablePath: createRequire(import.meta.url)('electron'), args: ['.'], env });
     const page = await app.firstWindow(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.locator('.plus').click(); await page.getByRole('button', { name: '新建项目', exact: true }).click();

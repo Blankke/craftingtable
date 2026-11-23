@@ -19,7 +19,7 @@ test('规则图形比例锁覆盖输入、鼠标缩放与保存重开', async ()
   const saved = async (): Promise<ProjectDocument> => JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8'));
   let app: ElectronApplication | undefined;
   try {
-    const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
+    const env: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
     app = await _electron.launch({ executablePath: createRequire(import.meta.url)('electron'), args: ['.'], env });
     const page = await app.firstWindow();
     await page.getByRole('button', { name: document.name, exact: true }).click();

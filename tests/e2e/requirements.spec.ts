@@ -20,7 +20,7 @@ test('阅读批注、Markdown 导出与无路径剪贴板图片', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'workbench-reading-'));
   let app: ElectronApplication | undefined;
   try {
-    const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
+    const env: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
     app = await _electron.launch({ executablePath: createRequire(import.meta.url)('electron'), args: ['.'], env });
     const page = await app.firstWindow();
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
@@ -102,7 +102,7 @@ test('实际形状虚影、连续数值一次撤销、重复双击与笔记拖�
   const root = await mkdtemp(path.join(os.tmpdir(), 'workbench-placement-'));
   let app: ElectronApplication | undefined;
   try {
-    const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
+    const env: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
     app = await _electron.launch({ executablePath: createRequire(import.meta.url)('electron'), args: ['.'], env });
     const page = await app.firstWindow();
     await createProject(page, '画布补全验收');
@@ -128,11 +128,11 @@ test('实际形状虚影、连续数值一次撤销、重复双击与笔记拖�
     await page.mouse.dblclick(bounds!.x + object.x + 2, bounds!.y + object.y + 2);
     const rotation = page.getByLabel('旋转（°）', { exact: true });
     await expect(rotation).toBeVisible();
-    const before = await canvas.locator('canvas').first().evaluate(element => element.toDataURL());
+    const before = await canvas.locator('canvas').first().evaluate((element: HTMLCanvasElement) => element.toDataURL());
     await rotation.focus();
     for (let count = 0; count < 8; count++) await page.keyboard.down('ArrowUp');
     await expect(rotation).toHaveValue('8');
-    expect(await canvas.locator('canvas').first().evaluate(element => element.toDataURL())).not.toBe(before);
+    expect(await canvas.locator('canvas').first().evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(before);
     await page.keyboard.up('ArrowUp');
     await rotation.press('Control+z');
     await expect(rotation).toHaveValue('0');

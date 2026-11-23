@@ -11,7 +11,7 @@ test('项目创建后画布对象能保存并重开', async () => {
   const testRoot = await mkdtemp(path.join(os.tmpdir(), 'workbench-e2e-'));
   let application: ElectronApplication | undefined;
   try {
-    const environment = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
+    const environment: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
     delete environment.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env: environment });
     const page = await application.firstWindow();
@@ -90,7 +90,7 @@ test('素材库移除会同步删除项目素材文件', async () => {
   const testRoot = await mkdtemp(path.join(os.tmpdir(), 'workbench-asset-remove-'));
   let application: ElectronApplication | undefined;
   try {
-    const environment = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
+    const environment: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
     delete environment.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env: environment });
     const page = await application.firstWindow();

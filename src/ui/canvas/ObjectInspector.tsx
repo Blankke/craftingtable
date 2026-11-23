@@ -1,11 +1,13 @@
 // 用法：<ObjectInspector editor={editor} objects={selection} assets={document.assets}/>；样式预设、颜色库与文本/排列均通过命令写入，支持撤销。
 // 颜色不再单独成页签，而是以统一弹层嵌入填充、渐变、线条、媒体轨道与文本各自的颜色入口；图片提供「还原比例」恢复自然比例。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Arrangement, Editor } from '../../core/editor';
 import type { CanvasObject, ProjectDocument } from '../../core/document';
 import { isShapeObject, lockStandardShape, resizeObject, restoredImageRatio, styleOf } from '../../core/appearance';
 import { stylePresetsFor } from '../../core/elementStyles';
 import { TextToolbar } from './TextToolbar';
+import { CanvasRichTextInput } from './CanvasTextEditor';
+import { emptyCanvasText } from '../../core/canvasText';
 import { ColorTrigger } from '../theme/ColorEditor';
 import { mediaSource } from '../media/mediaSource';
 import { useLanguage } from '../shared/language';
@@ -21,9 +23,10 @@ function PresetCard({ label, style }: { label: string; style: NonNullable<Canvas
   </svg><em>{label}</em></span>;
 }
 
-export function ObjectInspector({ editor, objects, assets }: { editor: Editor; objects: CanvasObject[]; assets: ProjectDocument['assets'] }) {
+export function ObjectInspector({ editor, objects, assets, requestedTab = '样式', request = 0 }: { editor: Editor; objects: CanvasObject[]; assets: ProjectDocument['assets']; requestedTab?: string; request?: number }) {
   const { t } = useLanguage();
   const [tab, setTab] = useState('样式');
+  useEffect(() => { setTab(requestedTab); }, [request, requestedTab]);
   const object = objects[0];
   if (!object) return <div className="inspector-empty"><MousePointer2 size={24} strokeWidth={1.4} /><span>{t('未选择对象', 'No object selected')}</span></div>;
   const style = styleOf(object);
@@ -73,7 +76,7 @@ export function ObjectInspector({ editor, objects, assets }: { editor: Editor; o
   };
   const presets = stylePresetsFor(object.kind);
   const arrange = (operation: Arrangement) => editor.arrangeObjects(objects.map(item => item.id), operation);
-  return <div className="object-inspector">
+  return <fieldset className="object-inspector" disabled={objects.some(object => object.locked)} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     <fieldset className="object-geometry"><legend>{t('位置与尺寸', 'Position and size')}</legend><NumberField editor={editor} label="X" value={object.x} onPreview={x => previewPosition('x', x)} />
       <NumberField editor={editor} label="Y" value={object.y} onPreview={y => previewPosition('y', y)} />
       <NumberField editor={editor} label={t('旋转（°）', 'Rotation (°)')} value={object.rotation ?? 0} min={-360} max={360} onPreview={rotation => editor.preview(draft => { draft.objects.filter(item => objects.some(o => o.id === item.id)).forEach(target => { target.rotation = rotation || undefined; }); })} />
@@ -84,7 +87,7 @@ export function ObjectInspector({ editor, objects, assets }: { editor: Editor; o
     {tab === '样式' && <>
       <div className="preset-grid">{presets.map(preset => <button key={preset.id} className="preset-option" aria-label={preset.label} onClick={() => updateStyle(preset.style)}><PresetCard label={preset.label} style={{ ...style, ...preset.style }} /></button>)}</div>
       {object.kind === 'media' && <fieldset><legend>{t('轨道颜色', 'Track color')}</legend><div className="inspector-color-row"><ColorTrigger label={t('轨道颜色', 'Track color')} value={object.color ?? '#8888ff'} onChange={applyFill} /><button onClick={restoreAuto}>{t('恢复自动配色', 'Restore auto')}</button></div></fieldset>}
-      {object.kind !== 'image' && object.kind !== 'media' && <fieldset><legend>{t('填充', 'Fill')}</legend>
+      {object.kind !== 'image' && object.kind !== 'imageStack' && object.kind !== 'media' && <fieldset><legend>{t('填充', 'Fill')}</legend>
         <label><span><input type="checkbox" checked={style.fillEnabled} onChange={e => updateStyle({ fillEnabled: e.target.checked })} />{t('启用填充', 'Fill on')}</span><ColorTrigger label={t('填充颜色', 'Fill color')} value={style.fill} onChange={applyFill} /></label>
         <label><span><input type="checkbox" checked={style.gradient} onChange={e => updateStyle({ gradient: e.target.checked })} />{t('渐变', 'Gradient')}</span><ColorTrigger label={t('渐变颜色', 'Gradient color')} value={style.gradientColor} onChange={color => updateStyle({ gradientColor: color })} /></label>
         {style.gradient && <label>{t('渐变方向', 'Direction')}<select value={style.gradientDirection} onChange={e => updateStyle({ gradientDirection: e.target.value as 'vertical' | 'horizontal' })}><option value="vertical">{t('上下', 'Vertical')}</option><option value="horizontal">{t('左右', 'Horizontal')}</option></select></label>}
@@ -98,7 +101,7 @@ export function ObjectInspector({ editor, objects, assets }: { editor: Editor; o
       <button onClick={resetStyle}>{t('恢复默认样式', 'Restore default style')}</button>
     </>}
     {tab === '文本' && (('text' in object || 'fill' in object) ? <>
-      <label>{t('内容', 'Content')}<textarea aria-label={t('对象文字', 'Object text')} value={object.text ?? ''} onChange={e => update(target => { if ('text' in target || 'fill' in target) target.text = e.target.value; })} /></label>
+      <div className="canvas-inspector-text"><CanvasRichTextInput disabled={objects.some(object => object.locked)} value={object.text ?? emptyCanvasText()} label={t('对象文字', 'Object text')} onChange={text => previewUpdate(target => { if ('text' in target || 'fill' in target) target.text = text; })} onCommit={() => editor.commitPreview()} onCancel={() => editor.cancelPreview()} /></div>
       <TextToolbar editor={editor} object={object} />
       <label>{t('字体', 'Font')}<select value={style.fontFamily} onChange={e => updateStyle({ fontFamily: e.target.value })}>{['Microsoft YaHei', 'SimSun', 'Arial', 'Georgia', 'monospace'].map(font => <option key={font}>{font}</option>)}</select></label>
       <div className="inspector-tabs">{(['bold', 'italic', 'underline'] as const).map((key, index) => <button key={key} aria-pressed={style[key]} onClick={() => updateStyle({ [key]: !style[key] })}>{[t('粗体', 'Bold'), t('斜体', 'Italic'), t('下划线', 'Underline')][index]}</button>)}</div>
@@ -108,8 +111,8 @@ export function ObjectInspector({ editor, objects, assets }: { editor: Editor; o
 
       {object.kind === 'image' && <><label><span><input aria-label={t('锁定比例', 'Lock aspect')} type="checkbox" checked={object.aspectLocked !== false} onChange={e => update(target => { if (target.kind === 'image') target.aspectLocked = e.target.checked; })} />{t('锁定比例', 'Lock aspect')}</span><button onClick={() => void restoreAspect()}>{t('还原比例', 'Restore aspect')}</button></label><fieldset><legend>{t('裁剪（原图百分比）', 'Crop (%)')}</legend>{!object.crop && <button onClick={() => update(target => { if (target.kind === 'image') target.crop = { x: .05, y: .05, width: .9, height: .9 }; })}>{t('开始裁剪', 'Start crop')}</button>}{(['x', 'y', 'width', 'height'] as const).map((field, index) => <NumberField editor={editor} key={field} label={[t('裁剪左侧', 'Crop left'), t('裁剪顶部', 'Crop top'), t('裁剪宽度', 'Crop width'), t('裁剪高度', 'Crop height')][index]} value={crop![field] * 100} min={field === 'x' || field === 'y' ? 0 : 1} max={field === 'x' || field === 'y' ? 99 : 100} onPreview={value => cropField(field, value)} />)}<button onClick={() => update(target => { if (target.kind === 'image') { if (target.aspectLocked !== false && target.crop) target.height *= target.crop.width / target.crop.height; delete target.crop; } })}>{t('恢复原图', 'Restore original')}</button></fieldset></>}
       {objects.length > 1 && <fieldset><legend>{t('对齐与分布', 'Align & distribute')}</legend><div className="tool-grid">{([['left', '左对齐'], ['center-x', '水平居中'], ['right', '右对齐'], ['top', '顶对齐'], ['middle-y', '垂直居中'], ['bottom', '底对齐'], ['distribute-x', '水平分布'], ['distribute-y', '垂直分布']] as const).map(([operation, label]) => <button key={operation} onClick={() => arrange(operation)}>{t(label, operation)}</button>)}</div></fieldset>}
-      <div className="tool-grid"><button onClick={() => editor.execute(draft => { const chosen = draft.objects.filter(o => objects.some(item => item.id === o.id)); draft.objects = [...draft.objects.filter(o => !chosen.includes(o)), ...chosen]; })}>{t('置于顶层', 'Bring to front')}</button><button onClick={() => editor.execute(draft => { const chosen = draft.objects.filter(o => objects.some(item => item.id === o.id)); draft.objects = [...chosen, ...draft.objects.filter(o => !chosen.includes(o))]; })}>{t('置于底层', 'Send to back')}</button>
-      {objects.length > 1 && <button onClick={() => editor.group(objects.map(o => o.id))}>{t('分组', 'Group')}</button>}{object.groupId && <button onClick={() => editor.ungroup(object.groupId!)}>{t('解组', 'Ungroup')}</button>}</div>
+      <div className="tool-grid"><button onClick={() => editor.reorderObjects(objects.map(object => object.id), 'front')}>{t('置于顶层', 'Bring to front')}</button><button onClick={() => editor.reorderObjects(objects.map(object => object.id), 'back')}>{t('置于底层', 'Send to back')}</button>
+      {objects.length > 1 && <button onClick={() => editor.group(objects.map(o => o.id))}>{t('分组', 'Group')}</button>}{object.groupId && <button onClick={() => editor.ungroupObjects(objects.map(object => object.id))}>{t('解组', 'Ungroup')}</button>}</div>
     </>}
-  </div>;
+  </fieldset>;
 }

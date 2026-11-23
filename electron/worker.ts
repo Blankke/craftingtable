@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { documentSchema, readProjectDocument } from '../src/core/document';
+import { documentSchema, objectAssetIds, readProjectDocument } from '../src/core/document';
 import { buildProjectPreview, type ProjectPreview } from '../src/core/projectPreview';
 import { aggregatePeaks, encodeWaveform, WAVEFORM_SAMPLES_PER_SECOND, WAVEFORM_VERSION } from '../src/core/waveform';
 
@@ -217,7 +217,7 @@ async function homePreview(folder: string, document: z.infer<typeof documentSche
     if (cached.revision === document.revision && cached.preview) return cached.preview;
   } catch { /* 首次列出或缓存损坏时重新计算 */ }
   const images = new Map<string, string>();
-  const used = new Set(document.objects.flatMap(object => 'assetId' in object && object.assetId ? [object.assetId] : []));
+  const used = new Set(document.objects.flatMap(objectAssetIds));
   const candidates = [...document.assets.filter(asset => used.has(asset.id)), ...document.assets.filter(asset => !used.has(asset.id))]
     .filter(asset => asset.kind === 'image' || asset.kind === 'video').slice(0, 8);
   await Promise.all(candidates.map(async asset => {

@@ -1,3 +1,4 @@
+import { canvasTextFromPlainText } from './canvasText';
 // 用法：npm.cmd exec -- vitest run src/core/projectPreview.test.ts。核对首页预览来自项目内容。
 import { describe, expect, it } from 'vitest';
 import { newDocument } from './document';
@@ -13,7 +14,7 @@ describe('项目首页预览', () => {
     const document = newDocument('预览');
     const assetId = crypto.randomUUID();
     document.assets.push({ id: assetId, name: '图像', path: 'assets/picture.jpg', kind: 'image', status: 'ready' });
-    document.objects.push({ id: crypto.randomUUID(), kind: 'text', x: 0, y: 0, width: 180, height: 40, groupId: null, text: '<真实内容>', fontSize: 16, color: '#222222', align: 'left' });
+    document.objects.push({ id: crypto.randomUUID(), kind: 'text', x: 0, y: 0, width: 180, height: 40, groupId: null, text: canvasTextFromPlainText('<真实内容>'), fontSize: 16, color: '#222222', align: 'left' });
     document.objects.push({ id: crypto.randomUUID(), kind: 'image', x: 20, y: 50, width: 120, height: 80, groupId: null, assetId });
     document.objects.push({ id: crypto.randomUUID(), kind: 'diamond', x: 30, y: 20, width: 70, height: 55, rotation: 15, groupId: null, fill: '#ffeeaa', stroke: '#334455' });
     const note = newNote('笔记');

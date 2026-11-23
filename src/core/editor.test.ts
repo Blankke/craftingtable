@@ -1,3 +1,4 @@
+import { canvasTextFromPlainText } from './canvasText';
 import { describe, expect, it } from 'vitest';
 import { Editor } from './editor';
 import { newDocument, resolveAnchor } from './document';
@@ -30,7 +31,7 @@ describe('时间锚点与撤销', () => {
     const assetId = crypto.randomUUID(), mediaId = crypto.randomUUID(), textId = crypto.randomUUID();
     document.assets.push({ id: assetId, name: 'a.mp3', path: 'assets/a.mp3', kind: 'audio', status: 'ready' });
     document.objects.push({ id: mediaId, kind: 'media', assetId, x: 0, y: 0, width: 100, height: 80, groupId: null, inUs: 0, outUs: 5_000_000, pixelsPerSecond: 30 });
-    document.objects.push({ id: textId, kind: 'text', x: 200, y: 0, width: 100, height: 50, groupId: null, text: '说明', fontSize: 16, color: '#000', align: 'left' });
+    document.objects.push({ id: textId, kind: 'text', x: 200, y: 0, width: 100, height: 50, groupId: null, text: canvasTextFromPlainText('说明'), fontSize: 16, color: '#000', align: 'left' });
     const editor = new Editor(document);
     editor.annotateMarker(editor.addMarker(mediaId, 2_000_000), textId);
     editor.duplicateObjects([mediaId, textId]);
@@ -149,7 +150,7 @@ describe('时间锚点与撤销', () => {
     const assetId = crypto.randomUUID(), mediaId = crypto.randomUUID(), textId = crypto.randomUUID();
     document.assets.push({ id: assetId, name: 'sample.wav', path: 'assets/sample.wav', kind: 'audio', status: 'ready', durationUs: 8_000_000 });
     document.objects.push({ id: mediaId, kind: 'media', assetId, x: 10, y: 20, width: 100, height: 80, groupId: null, inUs: 0, outUs: 8_000_000, pixelsPerSecond: 20 });
-    document.objects.push({ id: textId, kind: 'text', x: 250, y: 20, width: 120, height: 60, groupId: null, text: '说明', fontSize: 16, color: '#000', align: 'left' });
+    document.objects.push({ id: textId, kind: 'text', x: 250, y: 20, width: 120, height: 60, groupId: null, text: canvasTextFromPlainText('说明'), fontSize: 16, color: '#000', align: 'left' });
     const editor = new Editor(document);
     editor.annotateMarker(editor.addMarker(mediaId, 3_000_000), textId);
     editor.group([mediaId, textId]);

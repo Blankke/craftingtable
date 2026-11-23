@@ -3,6 +3,10 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 // 渲染器仅可调用列出的项目与素材操作，不能传入任意文件操作指令。
 contextBridge.exposeInMainWorld('workbench', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  clipboardCommand: (command: string) => ipcRenderer.invoke('editing:clipboard', command),
+  readClipboardText: () => ipcRenderer.invoke('editing:clipboard-text'),
+  copyGraphic: (input: { png: string; svg?: string }) => ipcRenderer.invoke('editing:copy-graphic', input),
+  openLink: (href: string) => ipcRenderer.invoke('editing:open-link', href),
   chooseProjectsRoot: () => ipcRenderer.invoke('settings:choose-projects-root'),
   listProjects: () => ipcRenderer.invoke('projects:list'),
   createProject: (name: string) => ipcRenderer.invoke('projects:create', name),

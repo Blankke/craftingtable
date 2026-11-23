@@ -1,0 +1,34 @@
+/* 叠图右键入口和原生模态查看器；双页几何与折叠动画由原组件负责。 */
+.image-stack-dialog{width:96vw;height:96vh;max-width:96vw;max-height:96vh;padding:0;border:1px solid var(--wb-border);border-radius:12px;overflow:hidden;background:var(--wb-card);color:var(--wb-foreground);box-shadow:0 20px 80px #0006}
+.image-stack-dialog::backdrop{background:#0009;backdrop-filter:blur(8px)}
+.image-stack-dialog .jsc-root{color:var(--wb-foreground);background:radial-gradient(ellipse at 50% 35%,color-mix(in srgb,var(--wb-primary) 12%,var(--wb-card)),var(--wb-background))}
+.image-stack-dialog .jsc-top{padding:12px 16px 0;align-items:center;gap:12px}
+.image-stack-dialog .jsc-head{position:static;transform:none;max-width:30%;margin-right:auto;text-align:left;overflow:hidden;text-overflow:ellipsis}
+.image-stack-dialog .jsc-title{font-size:20px}
+.image-stack-dialog .jsc-meta{margin-top:3px}
+.image-stack-dialog .jsc-chip{width:36px;height:36px}
+.image-stack-dialog .jsc-chip{color:var(--wb-foreground);background:var(--wb-secondary);box-shadow:inset 0 0 0 1px var(--wb-border)}
+.image-stack-dialog .jsc-chip[aria-pressed=true]{box-shadow:inset 0 0 0 1.5px var(--wb-primary)}
+.image-stack-dialog .jsc-stage{margin:10px 0;min-height:0;overflow:hidden;touch-action:none}
+.jsc-camera{position:absolute;inset:0;transform-origin:center}
+.jsc-stage[data-zoomed] .jsc-view,.jsc-stage[data-zoomed] .jsc-floor{display:none}
+.jsc-detail{position:absolute;left:50%;top:50%;width:var(--jsc-w);height:var(--jsc-h);transform:translate(-50%,-50%);overflow:hidden;border-radius:calc(var(--jsc-w) * .034)}
+.jsc-zoom{display:flex;align-items:center;gap:6px}
+.jsc-zoom output{min-width:48px;text-align:center;font-size:13px;font-variant-numeric:tabular-nums}
+.image-stack-dialog .jsc-chip:disabled{opacity:.35;cursor:default}
+.image-stack-dialog .jsc-floor{background:color-mix(in srgb,var(--wb-foreground) 30%,transparent);opacity:.24}
+.image-stack-dialog .jsc-bg{object-fit:contain}
+.image-stack-dialog .jsc-footer{position:relative;display:flex;align-items:center;justify-content:center;gap:24px;padding:0 20px 14px;background:var(--wb-card)}
+.image-stack-dialog .jsc-bar{align-items:center;padding:0;flex-shrink:0}
+.image-stack-dialog .jsc-btn{background:var(--wb-card);color:var(--wb-foreground);border:1px solid var(--wb-border);box-shadow:0 3px 12px #0001}
+.image-stack-dialog .jsc-btn:disabled{opacity:.35;cursor:default;transform:none}
+.image-stack-dialog .jsc-btn:focus-visible,.image-stack-dialog .jsc-chip:focus-visible{outline-color:var(--wb-primary)}
+.jsc-caption{display:grid;gap:6px;width:min(640px,70%);margin:0;font-size:12px;color:var(--wb-muted-foreground)}
+.jsc-caption>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.jsc-caption textarea{resize:none;min-height:58px;max-height:100px;width:100%;padding:9px 12px;border:1px solid var(--wb-border);border-radius:7px;user-select:text;line-height:1.5;color:var(--wb-foreground);background:var(--wb-card);font:inherit;font-size:14px}
+.jsc-position{font-size:13px;font-variant-numeric:tabular-nums;min-width:54px;text-align:center}
+.jsc-grid{margin:16px 24px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));align-content:start;gap:16px}
+.jsc-grid button{display:grid;gap:7px;padding:8px;min-width:0;border:1px solid var(--wb-border);background:var(--wb-card);color:var(--wb-foreground);text-align:left}
+.jsc-grid img{width:100%;height:140px;object-fit:contain}.jsc-grid span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.jsc-grid small{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--wb-muted-foreground);font-size:12px;line-height:1.5}
+@media(max-width:640px){.image-stack-dialog{width:98vw;max-width:98vw}.image-stack-dialog .jsc-top{flex-wrap:wrap}.image-stack-dialog .jsc-head{max-width:none}.image-stack-dialog .jsc-top>.jsc-group:last-child{margin-left:auto}.image-stack-dialog .jsc-footer{gap:12px;padding:0 12px 12px}.jsc-caption{flex:1;min-width:0}.image-stack-dialog .jsc-bar{gap:6px}.image-stack-dialog .jsc-btn{width:34px;height:34px}}

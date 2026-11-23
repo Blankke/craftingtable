@@ -1,13 +1,14 @@
 // 运行示例：npx vitest run src/core/noteMarkdown.test.ts。覆盖真实 Markdown 与阅读批注的位置映射。
 import { describe, expect, it } from 'vitest';
-import { newNote, type NoteDocument } from './note';
+import { newNote } from './note';
+import type { RichTextDocument } from './richText';
 import { exportNoteMarkdown, noteMarkdownSource, renderNoteMarkdown } from './noteMarkdown';
 
-const documentOf = (text: string): NoteDocument => ({ type: 'doc', content: text.split('\n').map(line => ({ type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [] })) });
+const documentOf = (text: string): RichTextDocument => ({ type: 'doc', content: text.split('\n').map(line => ({ type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [] })) });
 
 describe('笔记 Markdown', () => {
   it('导出保留手写语法，同时序列化格式、编号和多行引用', () => {
-    const document: NoteDocument = { type: 'doc', content: [
+    const document: RichTextDocument = { type: 'doc', content: [
       ...documentOf('# 手写标题\n**手写粗体**').content,
       { type: 'paragraph', content: [{ type: 'text', text: '工具栏粗体', marks: [{ type: 'bold' }] }] },
       { type: 'orderedList', attrs: { start: 3 }, content: [

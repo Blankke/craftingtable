@@ -71,6 +71,30 @@ If FUSE is unavailable, use `./CraftingTable-0.1.0-linux-x86_64.AppImage --appim
 4. Switch to **Notes** to write an outline, collect references or review a transcript. Double-click a note on the canvas to open it.
 5. Double-click a text box, shape or media annotation to edit its text. Click **Done**, press **Ctrl+Enter** or click outside to save; **Esc** cancels the edit. Use the **Edit** panel for appearance and geometry, including **Lock standard proportions** for regular shapes.
 
+Press **Ctrl+V** on the canvas to paste text or images. Text creates a 320px-wide box with no fill or border and grows vertically with its contents. Images also appear in the asset library and are saved under the project’s `assets/` directory. Canvas text converts Markdown into editable formatting, including headings, emphasis, lists, tasks, quotes, code and tables. Shape text is centered by default and can extend above and below the shape without resizing it. The editing hint disappears during input. Switching themes immediately adapts existing text, fills and lines.
+
+Select at least two images or image stacks, right-click and choose **Stack images**. Existing stacks can be merged with more images or other stacks. Click the stack’s view label or double-click it to browse with a folding spread effect in a larger window, fitted to each image’s proportions. Use the wheel, toolbar buttons or **+ / −** to zoom from 50% to 500% of the fitted size. Drag a zoomed image to inspect details; **0** or **Fit to window** resets the view. At the fitted size, drag to turn pages. Arrow keys, navigation buttons and the thumbnail grid also change images and reset the zoom. Add a separate caption below each image; captions remain visible while browsing and are saved with the project. Choose **Unstack images** to restore the images with their captions, crops and connections. **Ctrl+Z** undoes stacking, merging or unstacking in one step. Caption edits also support undo.
+
+Double-click **Arrow**, **Brush** or **Text** to keep using the tool; a pin marks this state. Press **Esc** or select another tool to exit. With persistent Text, click or drag on the canvas to place a text box, finish editing, then place another. **Shift+Enter** on a focused tool button provides the same action. Single clicks retain their behavior: Arrow returns to Select after drawing, Text creates one box, and Brush draws continuously. Selection outlines and corner marks keep a constant screen thickness when zooming out.
+
+Right-click a canvas object to delete, cut, copy, paste, duplicate, copy as an image/SVG, group, lock, change stacking order or edit its style. Image menus open cropping; note cards open their content. Object information, external links and custom connection points are editable from the same menu. Default styles are stored locally by object type and apply to newly created objects. Right-click empty space for paste, select all, undo and redo.
+
+Notes and canvas text share a context menu for formatting, paragraphs, links, lists, tables and plain-text paste. Notes also provide search, images, annotations and moving selected content to another note. The top-bar Undo restores both notes together after a move. Use arrow keys to navigate menus, **Shift+F10** to open them and **Esc** to return to editing.
+
+| Action | Shortcut |
+| --- | --- |
+| Cut / copy / paste; duplicate | Ctrl+X / C / V; canvas Ctrl+D |
+| Group / ungroup; lock / unlock | Canvas Ctrl+G / Ctrl+Shift+G; Ctrl+L |
+| Bring forward / send backward; front / back | Ctrl+] / [; Ctrl+Shift+] / [ |
+| Bold / italic / underline | Ctrl+B / I / U |
+| Align left / center / right | Ctrl+Shift+L / E / R |
+| Increase / decrease font size | Ctrl+Shift+> / < |
+| Strikethrough / inline code / clear formatting | Text Ctrl+Shift+X / Ctrl+E / Ctrl+\ |
+| Bullet / numbered / task list | Text Ctrl+Shift+8 / 7 / 9 |
+| Heading 1–6 / paragraph | Text Ctrl+Alt+1–6 / Ctrl+Alt+0 |
+| Edit link; paste plain text | Text Ctrl+K; Ctrl+Shift+V |
+| Undo / redo | Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z |
+
 Drag gestures show a preview and commit on release; right-click or **Esc** cancels. **Ctrl+S** saves, **Ctrl+Z** undoes, and save status appears beside the project name. Panel sizes, favorites and theme choices are stored on your device.
 
 Supported imports include TXT, MD, PNG, JPEG, WebP, GIF, BMP, MP3, WAV, M4A, AAC, OGG, FLAC, MP4, MOV, MKV and WebM. Playback depends on the file’s codec; importing a container does not guarantee that every codec inside it can play.
@@ -97,7 +121,7 @@ npm run prepare:media
 npm run dev
 ```
 
-On PowerShell, use `npm.cmd` if the execution policy blocks `npm.ps1`. `dev` opens Electron with Vite hot reload. Renderer edits reload automatically; restart the command after editing `electron/`. Development projects use `.runtime/projects/`, with separate application settings from installed builds.
+On PowerShell, use `npm.cmd` if the execution policy blocks `npm.ps1`. `dev` opens Electron with Vite hot reload. Renderer edits reload automatically; close the development window and restart the command after editing `electron/` or the shared project format. Development projects use `.runtime/projects/`, with separate application settings from installed builds.
 
 | Command | Purpose |
 | --- | --- |

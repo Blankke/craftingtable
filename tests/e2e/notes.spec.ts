@@ -13,7 +13,7 @@ test('笔记输入、浮动菜单批注、图片与标签恢复', async () => {
   const testRoot = await mkdtemp(path.join(os.tmpdir(), 'workbench-notes-'));
   let application: ElectronApplication | undefined;
   try {
-    const environment = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
+    const environment: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
     delete environment.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ executablePath: electronExecutable, args: electronArgs, env: environment });
     const page = await application.firstWindow();
@@ -99,8 +99,8 @@ test('笔记输入、浮动菜单批注、图片与标签恢复', async () => {
     await page.locator('header button').first().click();
     await expect(page.locator('.home')).toBeVisible();
     const [folder] = await readdir(path.join(testRoot, 'projects'));
-    const saved = JSON.parse(await readFile(path.join(testRoot, 'projects', folder, 'project.json'), 'utf8')) as { schemaVersion: number; assets: { kind: string }[]; notes: { annotations: { note: string }[]; document: { content: { type: string; attrs?: { width?: number; align?: string }; content?: { text?: string; marks?: { type: string }[] }[] }[] } }[] };
-    expect(saved.schemaVersion).toBe(3);
+    const saved = JSON.parse(await readFile(path.join(testRoot, 'projects', folder, 'project.json'), 'utf8')) as { schemaVersion: number; assets: { kind: string }[]; notes: { annotations: { note: string }[]; document: { content: { type: string; attrs?: { width?: number; align?: string }; content?: { type: string; text?: string; marks?: { type: string }[] }[] }[] } }[] };
+    expect(saved.schemaVersion).toBe(4);
     const paragraph = saved.notes[0].document.content.find(node => node.type === 'paragraph');
     expect(paragraph?.content?.[0].text).toBe('中文输入与保存');
     expect(paragraph?.content?.[0].marks?.some(mark => mark.type === 'noteAnnotation' || mark.type === 'highlight')).toBe(true);

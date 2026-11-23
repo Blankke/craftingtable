@@ -16,7 +16,8 @@ import { Mark, Node, mergeAttributes, type JSONContent } from '@tiptap/core';
 import { closeHistory } from '@tiptap/pm/history';
 import { autoUpdate, computePosition, flip, offset, shift } from '@floating-ui/dom';
 import type { Note } from '../../core/note';
-import { noteAnnotationIds, noteDocumentSchema } from '../../core/note';
+import { noteAnnotationIds } from '../../core/note';
+import { richTextDocumentSchema } from '../../core/richText';
 import type { ProjectDocument } from '../../core/document';
 import { mediaSource } from '../media/mediaSource';
 import { useLanguage } from '../shared/language';
@@ -24,6 +25,8 @@ import { useTheme } from '../theme/themeStore';
 import { colorToHex } from '../../core/theme';
 import { exportNoteMarkdown, renderNoteMarkdown } from '../../core/noteMarkdown';
 import { NoteAnnotationLinks } from './NoteAnnotationLinks';
+import { FormattingShortcuts, toggleTextList } from '../shared/FormattingShortcuts';
+import { RichTextContextMenu } from '../shared/RichTextContextMenu';
 import 'katex/dist/katex.min.css';
 
 const annotationColors = ['#efc969', '#8fc9a3', '#8cb8e8', '#de9ebd'];
@@ -71,9 +74,10 @@ function MarkdownPreview({ document, assets, notes, style, onOpenNote }: { docum
   }}><article dangerouslySetInnerHTML={{ __html: html }} /></section>;
 }
 
-export function NoteEditor({ note, assets, notes, onOpenNote, initialReadMode = false, onChange, onImportImages }: {
+export function NoteEditor({ note, assets, notes, onOpenNote, initialReadMode = false, onChange, onImportImages, onMoveSelection }: {
   note: Note; assets: ProjectDocument['assets']; notes: Note[]; onOpenNote(id: string): void; initialReadMode?: boolean;
   onChange(change: (draft: Note) => void): void; onImportImages(files: File[]): Promise<ProjectDocument['assets']>;
+  onMoveSelection?(targetId: string, remaining: Note['document'], selected: Note['document']): void;
 }) {
   const { t } = useLanguage();
   const { tokens } = useTheme();
@@ -123,7 +127,7 @@ export function NoteEditor({ note, assets, notes, onOpenNote, initialReadMode = 
     return () => observer.disconnect();
   }, []);
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false } }), Highlight.configure({ multicolor: true }), TextStyleKit.configure({ color: false, backgroundColor: false, lineHeight: false }), TaskList, TaskItem.configure({ nested: true, HTMLAttributes: { 'data-type': 'taskItem' }, a11y: { checkboxLabel: node => t(`完成：${node.textContent}`, `Complete: ${node.textContent}`) } }), TableKit.configure({ table: { resizable: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }), NoteSearch, NoteAnnotation, ProjectImage],
+    extensions: [StarterKit.configure({ link: { openOnClick: false } }), Highlight.configure({ multicolor: true }), TextStyleKit.configure({ color: false, backgroundColor: false, lineHeight: false }), TaskList, TaskItem.configure({ nested: true, HTMLAttributes: { 'data-type': 'taskItem' }, a11y: { checkboxLabel: node => t(`完成：${node.textContent}`, `Complete: ${node.textContent}`) } }), TableKit.configure({ table: { resizable: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }), NoteSearch, NoteAnnotation, ProjectImage, FormattingShortcuts],
     content: updateImageNodes(note.document, assets),
     immediatelyRender: false,
     enableInputRules: false,
@@ -131,7 +135,7 @@ export function NoteEditor({ note, assets, notes, onOpenNote, initialReadMode = 
     shouldRerenderOnTransaction: false,
     editable: !initialReadMode,
     onUpdate: ({ editor: active }) => {
-      const document = noteDocumentSchema.parse(active.getJSON());
+      const document = richTextDocumentSchema.parse(active.getJSON());
       onChangeRef.current(draft => { draft.document = document; });
     },
     onSelectionUpdate: ({ editor: active }) => {
@@ -319,6 +323,8 @@ export function NoteEditor({ note, assets, notes, onOpenNote, initialReadMode = 
     { icon: Highlighter, label: t('划线', 'Highlight'), active: editor?.isActive('highlight'), run: () => editor?.chain().setHighlight({ color: annotationColor }).run() }
   ];
   return <div className={`note-editor${focusMode ? ' is-focused' : ''}`}>
+    <RichTextContextMenu editor={editor} host={paperRef.current} readMode={readMode} notes={notes.filter(item => item.id !== note.id)} onFind={text => { setQuery(text); setMatchIndex(0); setFindOpen(true); setReadMode(false); requestAnimationFrame(() => findRef.current?.focus()); }} onImage={() => fileRef.current?.click()} onComment={addAnnotation}
+      onMove={onMoveSelection ? id => { if (!editor || editor.state.selection.empty) return; const selected = richTextDocumentSchema.parse({ type: 'doc', content: editor.state.selection.content().content.toJSON() }); const remaining = richTextDocumentSchema.parse(editor.state.tr.deleteSelection().doc.toJSON()); onMoveSelection(id, remaining, selected); } : undefined}/>
     <div className="note-commandbar">
       <div className="note-breadcrumb"><FileText size={15} /><span>{note.name || t('未命名笔记', 'Untitled note')}</span></div>
       <div className="note-command-actions">
@@ -343,9 +349,9 @@ export function NoteEditor({ note, assets, notes, onOpenNote, initialReadMode = 
         <span className="toolbar-divider" />
         {formatActions.filter(action => action.icon !== Highlighter).map(action => <IconButton key={action.label} icon={action.icon} label={action.label} aria-pressed={action.active} onMouseDown={event => event.preventDefault()} onClick={action.run} />)}
         <span className="toolbar-divider" />
-        <IconButton icon={List} label={t('无序列表', 'Bullet list')} aria-pressed={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()} />
-        <IconButton icon={ListOrdered} label={t('有序列表', 'Numbered list')} aria-pressed={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()} />
-        <IconButton icon={ListTodo} label={t('待办清单', 'Checklist')} aria-pressed={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()} />
+        <IconButton icon={List} label={t('无序列表', 'Bullet list')} aria-pressed={editor?.isActive('bulletList')} onClick={() => { if (editor) { editor.commands.focus(); toggleTextList(editor, 'bulletList'); } }} />
+        <IconButton icon={ListOrdered} label={t('有序列表', 'Numbered list')} aria-pressed={editor?.isActive('orderedList')} onClick={() => { if (editor) { editor.commands.focus(); toggleTextList(editor, 'orderedList'); } }} />
+        <IconButton icon={ListTodo} label={t('待办清单', 'Checklist')} aria-pressed={editor?.isActive('taskList')} onClick={() => { if (editor) { editor.commands.focus(); toggleTextList(editor, 'taskList'); } }} />
         <IconButton icon={Quote} label={t('引用', 'Quote')} aria-pressed={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()} />
         <IconButton icon={Code2} label={t('代码块', 'Code block')} aria-pressed={editor?.isActive('codeBlock')} onClick={() => editor?.chain().focus().toggleCodeBlock().run()} />
         <span className="toolbar-divider" />

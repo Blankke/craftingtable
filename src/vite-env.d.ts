@@ -3,7 +3,11 @@ import type { ProjectDocument } from './core/document';
 declare global {
   interface Window {
     workbench?: {
-      getSettings(): Promise<{ projectsRoot: string }>;
+      getSettings(): Promise<{ projectsRoot: string; documentSchemaVersion: number }>;
+      clipboardCommand(command: 'copy' | 'cut' | 'paste' | 'pasteAndMatchStyle' | 'selectAll'): Promise<void>;
+      readClipboardText(): Promise<string>;
+      copyGraphic(input: { png: string; svg?: string }): Promise<void>;
+      openLink(href: string): Promise<void>;
       chooseProjectsRoot(): Promise<{ projectsRoot: string }>;
       listProjects(): Promise<{ name: string; folder: string; revision?: number; status: 'ready' | 'recovery' | 'invalid'; summary: { objects: number; assets: number; notes: number }; preview: { canvas?: string; media?: string; note?: string } }[]>;
       createProject(name: string): Promise<string>;

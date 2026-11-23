@@ -1,4 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, utilityProcess, Menu } from 'electron';
+import { canvasTextPlainText } from '../src/core/canvasText';
+import type { RichTextDocument } from '../src/core/richText';
+import { PROJECT_SCHEMA_VERSION } from '../src/core/document';
+import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, utilityProcess, Menu, clipboard, ClipboardItem, nativeImage } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync, realpathSync, statSync } from 'node:fs';
@@ -17,6 +20,7 @@ let projectFolder: string | null = null;
 let window: BrowserWindow;
 let quitting = false;
 let allowClose = false;
+let closeRequestPending = false;
 function exitApplication(code: number): void {
   // app.exit 不触发 before-quit；必须先关闭自动重启，避免退出时留下新后台进程或占用安装文件。
   quitting = true;
@@ -82,7 +86,31 @@ else app.whenReady().then(() => {
   const settingsFile = path.join(app.getPath('userData'), 'settings.json');
   const defaultRoot = e2eRoot ? path.join(e2eRoot, 'projects') : smoke ? path.join(app.getPath('temp'), 'media-workbench-smoke') : devDirectories ? devDirectories.projects : path.join(app.getPath('documents'), '工作台');
   let root = e2eRoot || smoke ? defaultRoot : readProjectsRoot(settingsFile, defaultRoot);
-  ipcMain.handle('settings:get', () => ({ projectsRoot: root }));
+  ipcMain.handle('settings:get', () => ({ projectsRoot: root, documentSchemaVersion: PROJECT_SCHEMA_VERSION }));
+  // 右键菜单复用系统剪贴板命令；固定白名单，不能执行任意主进程方法。
+  ipcMain.handle('editing:clipboard', (event, command: unknown) => {
+    const action = z.enum(['copy', 'cut', 'paste', 'pasteAndMatchStyle', 'selectAll']).parse(command);
+    event.sender[action]();
+  });
+  ipcMain.handle('editing:clipboard-text', () => clipboard.readText());
+  ipcMain.handle('editing:copy-graphic', async (_event, input: unknown) => {
+    const { png, svg } = z.object({ png: z.string().max(70_000_000), svg: z.string().max(70_000_000).optional() }).parse(input);
+    if (!png.startsWith('data:image/png;base64,')) throw Error('图片格式无效');
+    const image = nativeImage.createFromDataURL(png);
+    if (image.isEmpty()) throw Error('图片内容为空');
+    // Electron 45 将 image/* 都按位图解码，SVG 必须经原生格式入口写入，避免被静默丢弃。
+    // 平台名称与 Chromium 的 SvgType 一致；所有格式仍一次原子提交。
+    const svgFormat = process.platform === 'darwin' ? 'public.svg-image' : 'image/svg+xml';
+    await clipboard.write([new ClipboardItem({
+      'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+      ...(svg ? { [`electron application/osclipboard;format="${svgFormat}"`]: svg, 'text/plain': svg } : {})
+    })]);
+  });
+  ipcMain.handle('editing:open-link', (_event, input: unknown) => {
+    const href = z.string().max(4096).parse(input);
+    if (!/^(https?:\/\/|mailto:)/i.test(href)) throw Error('链接地址无效');
+    return shell.openExternal(href);
+  });
   ipcMain.handle('settings:choose-projects-root', async () => {
     const selection = await dialog.showOpenDialog(window, { defaultPath: root, properties: ['openDirectory', 'createDirectory'] });
     if (selection.canceled || !selection.filePaths[0]) return { projectsRoot: root };
@@ -231,7 +259,9 @@ else app.whenReady().then(() => {
   });
   ipcMain.handle('tasks:cancel', (_event, taskId: unknown) => call({ method: 'cancel', taskId: z.string().uuid().parse(taskId) }));
   const appIcon = path.join(__dirname, '../build/icon.png');
-  window = new BrowserWindow({ width: 1440, height: 900, show: !smoke, backgroundColor: '#ffffff', icon: existsSync(appIcon) ? appIcon : undefined, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke } });
+  // 自动化由 DevTools 注入输入；隔离宿主机鼠标和焦点，避免真实移动中断拖动或提交未完成的文字。
+  window = new BrowserWindow({ width: 1440, height: 900, show: !smoke, focusable: !e2eRoot, backgroundColor: '#ffffff', icon: existsSync(appIcon) ? appIcon : undefined, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke && !e2eRoot } });
+  if (e2eRoot) window.setIgnoreMouseEvents(true);
   window.webContents.on('console-message', (_event, level, message) => { if (level >= 2) runtimeLog(`界面控制台：${message}`); });
   window.webContents.on('render-process-gone', (_event, details) => runtimeLog(`界面进程退出：${details.reason} ${details.exitCode}`));
   if (devRoot) {
@@ -247,20 +277,25 @@ else app.whenReady().then(() => {
   window.on('close', event => {
     if (allowClose || !projectFolder) return;
     event.preventDefault();
+    if (closeRequestPending) return;
+    closeRequestPending = true;
     const id = crypto.randomUUID();
     const response = new Promise<boolean>(resolve => {
       const timeout = setTimeout(() => { ipcMain.removeListener('save:flushed', listener); resolve(false); }, 10_000);
       const listener = (_event: Electron.IpcMainEvent, receivedId: string, saved: boolean) => {
-        if (receivedId !== id) return;
+        if (_event.sender !== window.webContents || receivedId !== id) return;
         clearTimeout(timeout); ipcMain.removeListener('save:flushed', listener); resolve(saved);
       };
       ipcMain.on('save:flushed', listener);
     });
     window.webContents.send('save:flush-request', id);
     void response.then(async saved => {
-      if (!saved) { await dialog.showMessageBox(window, { type: 'warning', message: '项目尚未保存，请重试后关闭窗口。', buttons: ['确定'] }); return; }
+      if (!saved) {
+        const choice = await dialog.showMessageBox(window, { type: 'warning', message: '项目保存失败', detail: '可以返回编辑器重试保存，或放弃尚未保存的修改并关闭窗口。已保存的项目文件会保留。', buttons: ['返回编辑器', '不保存并关闭'], defaultId: 0, cancelId: 0 });
+        if (choice.response !== 1) return;
+      }
       allowClose = true; window.close();
-    });
+    }).finally(() => { closeRequestPending = false; });
   });
   if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else window.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -404,7 +439,7 @@ else app.whenReady().then(() => {
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 130, y: 284, button: 'left', clickCount: 1 });
         await new Promise(resolve => setTimeout(resolve, 80));
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 500, y: 450, modifiers: ['leftButtonDown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 500, y: 450, modifiers: ['leftbuttondown'] });
         await new Promise(resolve => setTimeout(resolve, 80));
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 500, y: 450, button: 'left', clickCount: 1 });
         const annotation = await new Promise<boolean>(resolve => {
@@ -426,12 +461,12 @@ else app.whenReady().then(() => {
         await window.webContents.executeJavaScript(`document.querySelector('[aria-label=编辑画布文字]').focus()`);
         await window.webContents.insertText('中文注释');
         await new Promise(resolve => setTimeout(resolve, 100));
-        const textInput = await window.webContents.executeJavaScript(`(() => { const element = document.querySelector('[aria-label=编辑画布文字]'); const value = element.value; const focused = document.activeElement === element; document.querySelector('[aria-label=完成文字编辑]').click(); return { value, focused }; })()`);
+        const textInput = await window.webContents.executeJavaScript(`(() => { const element = document.querySelector('[aria-label=编辑画布文字]'); const value = element.innerText; const focused = document.activeElement === element; document.querySelector('[aria-label=完成文字编辑]').click(); return { value, focused }; })()`);
         const savedText = await new Promise<boolean>(resolve => {
           let attempts = 0;
           const inspect = async () => {
-            const snapshot = await call({ method: 'open', folder: result.folder }) as { objects: { kind: string; text?: string }[] };
-            if (snapshot.objects.some(item => item.kind === 'text' && item.text === '中文注释')) resolve(true);
+            const snapshot = await call({ method: 'open', folder: result.folder }) as { objects: { kind: string; text?: RichTextDocument }[] };
+            if (snapshot.objects.some(item => item.kind === 'text' && canvasTextPlainText(item.text) === '中文注释')) resolve(true);
             else if (++attempts >= 50) resolve(false);
             else setTimeout(inspect, 100);
           };
@@ -445,7 +480,7 @@ else app.whenReady().then(() => {
         await new Promise(resolve => setTimeout(resolve, 80));
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 120, y: 310, button: 'left', clickCount: 1 });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 510, modifiers: ['leftButtonDown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 510, modifiers: ['leftbuttondown'] });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 510, button: 'left', clickCount: 1 });
         const mediaArrow = await new Promise<boolean>(resolve => {
           let attempts = 0;
@@ -469,7 +504,7 @@ else app.whenReady().then(() => {
         await new Promise(resolve => setTimeout(resolve, 80));
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 520, y: 510, button: 'left', clickCount: 1 });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 180, y: 345, modifiers: ['leftButtonDown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 180, y: 345, modifiers: ['leftbuttondown'] });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 180, y: 345, button: 'left', clickCount: 1 });
         const timeArrow = await new Promise<boolean>(resolve => {
           let attempts = 0;
@@ -501,8 +536,8 @@ else app.whenReady().then(() => {
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 180, y: 405, button: 'left', clickCount: 1 });
         await new Promise(resolve => setTimeout(resolve, 80));
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 170, y: 405, modifiers: ['leftButtonDown'] });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 160, y: 405, modifiers: ['leftButtonDown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 170, y: 405, modifiers: ['leftbuttondown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 160, y: 405, modifiers: ['leftbuttondown'] });
         await new Promise(resolve => setTimeout(resolve, 80));
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 160, y: 405, button: 'left', clickCount: 1 });
         const scaled = await new Promise<boolean>(resolve => {
@@ -534,8 +569,8 @@ else app.whenReady().then(() => {
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 160, y: 345, button: 'left', clickCount: 1 });
         await new Promise(resolve => setTimeout(resolve, 80));
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 153, y: 345, modifiers: ['leftButtonDown'] });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 145, y: 345, modifiers: ['leftButtonDown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 153, y: 345, modifiers: ['leftbuttondown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 145, y: 345, modifiers: ['leftbuttondown'] });
         await new Promise(resolve => setTimeout(resolve, 80));
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 145, y: 345, button: 'left', clickCount: 1 });
         const trimmed = await new Promise<boolean>(resolve => {
@@ -557,8 +592,8 @@ else app.whenReady().then(() => {
         await window.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }))`);
         await new Promise(resolve => setTimeout(resolve, 80));
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 800, y: 600, button: 'left', clickCount: 1 });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 820, y: 620, modifiers: ['leftButtonDown'] });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 800, y: 600, modifiers: ['leftButtonDown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 820, y: 620, modifiers: ['leftbuttondown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 800, y: 600, modifiers: ['leftbuttondown'] });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 800, y: 600, button: 'left', clickCount: 1 });
         await new Promise(resolve => setTimeout(resolve, 100));
         await window.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true }))`);
@@ -622,7 +657,7 @@ else app.whenReady().then(() => {
           window.webContents.sendInputEvent({ type: 'mouseMove', ...origin });
           window.webContents.sendInputEvent({ type: 'mouseDown', ...origin, button: 'left', clickCount: 1 });
           await new Promise(resolve => setTimeout(resolve, 80));
-          window.webContents.sendInputEvent({ type: 'mouseMove', x, y, modifiers: ['leftButtonDown'] });
+          window.webContents.sendInputEvent({ type: 'mouseMove', x, y, modifiers: ['leftbuttondown'] });
           await new Promise(resolve => setTimeout(resolve, 80));
           window.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
         };
@@ -633,8 +668,8 @@ else app.whenReady().then(() => {
         const dropped = await new Promise<boolean>(resolve => {
           let attempts = 0;
           const inspect = async () => {
-            const snapshot = await call({ method: 'open', folder: result.folder }) as { objects: { kind: string; text?: string; x: number; y: number }[] };
-            if (snapshot.objects.some(item => item.kind === 'text' && item.text === '纯文本素材' && Math.abs(item.x - (650 - canvasOrigin.x)) < 2 && Math.abs(item.y - (550 - canvasOrigin.y)) < 2) && snapshot.objects.some(item => item.kind === 'rectangle' && Math.abs(item.x - (700 - canvasOrigin.x)) < 2 && Math.abs(item.y - (600 - canvasOrigin.y)) < 2)) resolve(true);
+            const snapshot = await call({ method: 'open', folder: result.folder }) as { objects: { kind: string; text?: RichTextDocument; x: number; y: number }[] };
+            if (snapshot.objects.some(item => item.kind === 'text' && canvasTextPlainText(item.text) === '纯文本素材' && Math.abs(item.x - (650 - canvasOrigin.x)) < 2 && Math.abs(item.y - (550 - canvasOrigin.y)) < 2) && snapshot.objects.some(item => item.kind === 'rectangle' && Math.abs(item.x - (700 - canvasOrigin.x)) < 2 && Math.abs(item.y - (600 - canvasOrigin.y)) < 2)) resolve(true);
             else if (++attempts >= 50) resolve(false);
             else setTimeout(inspect, 100);
           };
@@ -643,7 +678,7 @@ else app.whenReady().then(() => {
         if (!dropped) throw Error('文字素材拖放后未按位置保存');
         await window.webContents.executeJavaScript(`(async () => { document.querySelector('button[aria-label=箭头]').click(); let select; for (let i = 0; i < 30; i++) { select = document.querySelector('[aria-label=箭头路径]'); if (select) break; await new Promise(resolve => setTimeout(resolve, 30)); } if (!select) throw Error('箭头路径控件缺失'); select.value = 'elbow'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 300, y: 520, button: 'left', clickCount: 1 });
-        window.webContents.sendInputEvent({ type: 'mouseMove', x: 440, y: 550, modifiers: ['leftButtonDown'] });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: 440, y: 550, modifiers: ['leftbuttondown'] });
         window.webContents.sendInputEvent({ type: 'mouseUp', x: 440, y: 550, button: 'left', clickCount: 1 });
         const elbowSaved = await new Promise<boolean>(resolve => {
           let attempts = 0;

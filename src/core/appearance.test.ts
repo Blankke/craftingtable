@@ -1,3 +1,4 @@
+import { canvasTextFromPlainText } from './canvasText';
 // 用法：npm.cmd exec -- vitest run src/core/appearance.test.ts。验证图片几何与标记关系的持久化契约。
 import { describe, expect, it } from 'vitest';
 import { lockStandardShape, resizeObject, restoredImageRatio, styleOf } from './appearance';
@@ -42,7 +43,7 @@ describe('图片、样式与显式标记', () => {
   it('所有基本形状的样式、文本和图片裁剪能完整往返保存，越界裁剪被拒绝', () => {
     const document = newDocument('属性');
     for (const kind of shapeKinds) {
-      const object: CanvasObject = { id: crypto.randomUUID(), kind, x: 0, y: 0, width: 100, height: 60, groupId: null, fill: '#fff', stroke: '#000', text: '中文' };
+      const object: CanvasObject = { id: crypto.randomUUID(), kind, x: 0, y: 0, width: 100, height: 60, groupId: null, fill: '#fff', stroke: '#000', text: canvasTextFromPlainText('中文') };
       object.style = { ...styleOf(object), gradient: true, opacity: .4, dash: 'dashed' }; document.objects.push(object);
     }
     const object = image(); object.crop = { x: .1, y: .2, width: .7, height: .6 }; document.objects.push(object);

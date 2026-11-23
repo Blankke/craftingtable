@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Rect, Text, Line, Group, Image as KonvaImage, Circle, Path, RegularPolygon, Shape } from 'react-konva';
 import type Konva from 'konva';
 import { ObjectAppearance } from './ObjectAppearance';
+import { CanvasTextEditor } from './CanvasTextEditor';
+import { CanvasObjectMenu, type CanvasMenuTarget } from './CanvasObjectMenu';
+import { copyCanvasGraphic } from './canvasExport';
+import { ImageStackViewer } from './ImageStackViewer';
+import { canvasTextLayout, isTextObject } from './canvasTextLayout';
+import type { RichTextDocument } from '../../core/richText';
 import { resizeObject, styleOf } from '../../core/appearance';
+import { CANVAS_TEXT_WIDTH, emptyCanvasText } from '../../core/canvasText';
 import { useInteractionStore } from './interactionStore';
 import { Editor } from '../../core/editor';
 import { mediaWidth, resolveAnchor, type Anchor, type CanvasObject, type ConnectionStyle, type ProjectDocument } from '../../core/document';
@@ -13,6 +20,7 @@ import { mediaSource } from '../media/mediaSource';
 import { useLanguage } from '../shared/language';
 import { useTheme } from '../theme/themeStore';
 import { colorToHex, colorToRgba } from '../../core/theme';
+import { canvasDisplayObject, canvasInk } from '../../core/canvasColors';
 import { decodeWaveform, resampleColumns, type WaveformPeaks } from '../../core/waveform';
 import type { MediaAnalysis } from '../../core/mediaAnalysis';
 
@@ -21,6 +29,7 @@ type Point = { x: number; y: number };
 type Gesture =
   | { kind: 'pan'; start: Point; camera: Point }
   | { kind: 'marquee'; start: Point }
+  | { kind: 'text'; start: Point }
   | { kind: 'brush'; points: Point[] }
   | { kind: 'scrub'; mediaId: string; lastPreviewAt: number; node: Konva.Node | null }
   | { kind: 'scale-time'; mediaId: string; x: number; inUs: number; outUs: number; node: Konva.Node | null }
@@ -28,15 +37,24 @@ type Gesture =
   | { kind: 'move'; start: Point; ids: string[] }
   | { kind: 'resize'; start: Point; object: CanvasObject }
   | { kind: 'crop'; start: Point; object: Extract<CanvasObject, { kind: 'image' }>; crop: { x: number; y: number; width: number; height: number }; corner?: 'nw' | 'ne' | 'sw' | 'se' }
-  | { kind: 'arrow'; start: Point; sourceId: string | null; markerId: string | null };
+  | { kind: 'arrow'; start: Point; sourceId: string | null; markerId: string | null; pointId?: string };
 
 function ImageContent({ path, width, height, x = 0, y = 0, host = 'asset', crop, normalizedCrop = false, tint }: { path: string; width: number; height: number; x?: number; y?: number; host?: 'asset' | 'cache'; normalizedCrop?: boolean; tint?: string; crop?: { x: number; y: number; width: number; height: number } }) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
-    const element = new Image();
-    element.onload = () => setImage(element);
-    element.src = mediaSource(path, host);
-    return () => { element.onload = null; };
+    const element = new Image(), controller = new AbortController();
+    let objectUrl: string | undefined;
+    // 将受限素材协议响应转换为当前页面的 Blob，画布导出时保持同源、避免被标记为污染。
+    void fetch(mediaSource(path, host), { signal: controller.signal }).then(response => {
+      if (!response.ok) throw Error('素材无法读取');
+      return response.blob();
+    }).then(blob => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      element.onload = () => { setImage(element); URL.revokeObjectURL(objectUrl!); objectUrl = undefined; };
+      element.src = objectUrl;
+    }).catch(() => { if (!controller.signal.aborted) setImage(null); });
+    return () => { controller.abort(); element.onload = null; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [path, host]);
   const rendered = useMemo(() => {
     if (!image || !tint) return image;
@@ -103,13 +121,15 @@ function WaveformView({ path, color, x, y, width, height, inUs, outUs, scale }: 
   }} />;
 }
 
-function ObjectView({ object, scale, assetPath, assetName, assetKind, analysis, markers, playheadUs, selected, trimMode, tool, note, onSelect, onSeek }: {
-  object: CanvasObject; scale: number; assetPath?: string; assetName?: string; assetKind?: string; analysis?: MediaAnalysis; markers: ProjectDocument['markers']; playheadUs?: number; selected: boolean; tool: Tool;
+function ObjectView({ object: sourceObject, hideText = false, scale, assetPath, assetName, assetKind, assets, analysis, markers, playheadUs, selected, trimMode, tool, note, onSelect, onSeek, onOpenStack }: {
+  object: CanvasObject; hideText?: boolean; scale: number; assetPath?: string; assetName?: string; assetKind?: string; analysis?: MediaAnalysis; markers: ProjectDocument['markers']; playheadUs?: number; selected: boolean; tool: Tool;
   trimMode: boolean; note?: Note;
+  assets?: ProjectDocument['assets']; onOpenStack?(id: string): void;
   onSelect(additive: boolean): void; onSeek(timeUs: number, play: boolean): void;
 }) {
   const { t } = useLanguage();
   const { tokens } = useTheme();
+  const object = useMemo(() => canvasDisplayObject(sourceObject, tokens), [sourceObject, tokens]);
   const accent = colorToHex(tokens.primary);
   const fg = colorToHex(tokens.foreground);
   const selectionFill = colorToHex(tokens.selection);
@@ -130,7 +150,22 @@ function ObjectView({ object, scale, assetPath, assetName, assetKind, analysis, 
     onClick={event => { if (event.evt.button !== 0 || tool !== 'select' || (event.target.name().endsWith('-handle') && event.target.name() !== 'media-drag-handle')) return; onSelect(event.evt.ctrlKey || event.evt.shiftKey); seek(false, event.currentTarget.getRelativePointerPosition()?.x ?? 0); }}
     onDblClick={event => { if (tool === 'select') seek(true, event.currentTarget.getRelativePointerPosition()?.x ?? 0); }}
     onTap={() => { if (tool === 'select') onSelect(false); }}>
-    {object.kind !== 'media' && object.kind !== 'image' && object.kind !== 'note' && <ObjectAppearance object={object} />}
+    {object.kind !== 'media' && object.kind !== 'image' && object.kind !== 'imageStack' && object.kind !== 'note' && <ObjectAppearance object={object} hideText={hideText} scale={scale} />}
+    {object.kind === 'imageStack' && <>
+      {/* 后两张使用真实图片，轻微错位表达收起状态；封面与计数共用整组命中区域。 */}
+      {object.images.slice(0, 3).map((image, index) => ({ image, index })).reverse().map(({ image, index }) => {
+        const asset = assets?.find(item => item.id === image.assetId);
+        return <Group key={image.id} x={index * 7} y={-index * 7} rotation={index * 2}>
+          <Rect width={width} height={object.height} fill={colorToHex(tokens.card)} stroke={borderColor} cornerRadius={5} shadowColor="#0003" shadowBlur={index ? 5 : 9} />
+          {asset && <ImageContent path={asset.path} width={width} height={object.height} crop={image.crop} normalizedCrop />}
+          <Rect width={width} height={object.height} stroke={styleOf(object).strokeEnabled ? sourceObject.style ? styleOf(object).stroke : borderColor : undefined} strokeWidth={styleOf(object).strokeWidth} cornerRadius={5} />
+        </Group>;
+      })}
+      <Group name="image-stack-open" x={Math.max(4, width - 100)} y={Math.max(4, object.height - 32)} onClick={event => { event.cancelBubble = true; if (event.evt.button === 0) { onSelect(false); onOpenStack?.(object.id); } }}>
+        <Rect name="image-stack-open" width={94} height={26} cornerRadius={13} fill={colorToHex(tokens.card)} opacity={.94} stroke={borderColor}/>
+        <Text name="image-stack-open" width={94} height={26} align="center" verticalAlign="middle" text={`${object.images.length} ${t('张 · 查看', 'images · Open')}`} fill={fg} fontSize={12}/>
+      </Group>
+    </>}
     {object.kind === 'note' && note ? <>
       <Rect width={width} height={object.height} fill={colorToHex(tokens.card)} stroke={accent} strokeWidth={1} cornerRadius={6} shadowColor="#00000026" shadowBlur={6} shadowOffsetY={2} />
       <Text x={12} y={10} width={Math.max(20, width - 24)} ellipsis text={note.name || t('未命名笔记', 'Untitled note')} fontSize={14} fontStyle="bold" fill={fg} />
@@ -164,13 +199,25 @@ function ObjectView({ object, scale, assetPath, assetName, assetKind, analysis, 
         <Rect name="trim-in-handle" x={-6} y={23} width={12} height={50} fill="#e08a27" cornerRadius={4} />
         <Rect name="trim-out-handle" x={width - 6} y={23} width={12} height={50} fill="#e08a27" cornerRadius={4} />
       </> : <>
-        <Text x={Math.max(0, width - 105)} y={object.height + 9} text={t('显示长度', 'Display length')} fontSize={11} fill={accent} listening={false} />
+        <Text name="editor-decoration" x={Math.max(0, width - 105)} y={object.height + 9} text={t('显示长度', 'Display length')} fontSize={11} fill={accent} listening={false} />
         <Rect name="scale-time-handle" x={width - 40} y={object.height + 5} width={40} height={22} fill={accent} opacity={0.58} cornerRadius={5} />
       </>)}
       {tool === 'select' && <Rect name="media-drag-handle" x={0} y={0} width={width} height={23} fill="#fff" opacity={0.001} />}
     </> : null}
-    {object.kind === 'image' ? <>{assetPath ? <ImageContent path={assetPath} width={width} height={object.height} crop={object.crop} normalizedCrop /> : <Rect width={width} height={object.height} fill="#f1f5f9" />}<Rect width={width} height={object.height} stroke={styleOf(object).strokeEnabled ? styleOf(object).stroke : undefined} strokeWidth={styleOf(object).strokeWidth} dash={styleOf(object).dash === 'solid' ? [] : [6, 4]}/>{selected && tool === 'select' && object.crop && (() => { const crop = object.crop; const left = crop.x * width, top = crop.y * object.height, right = left + crop.width * width, bottom = top + crop.height * object.height; return <><Rect name="crop-move-handle" x={left} y={top} width={crop.width * width} height={crop.height * object.height} stroke="#e08a27" dash={[5, 3]} strokeWidth={2} fill="rgba(224,138,39,.08)" /><Text x={4} y={4} text={t('拖动裁剪框或边角调整', 'Drag crop or corners')} fontSize={10} fill="#a65c15" listening={false} />{([['nw', left, top], ['ne', right, top], ['sw', left, bottom], ['se', right, bottom]] as const).map(([corner, x, y]) => <Rect key={corner} name={`crop-resize-${corner}`} x={x - 6} y={y - 6} width={12} height={12} fill="#e08a27" cornerRadius={2} hitStrokeWidth={14} />)}</>; })()}</> : null}
-    {selected && object.kind !== 'media' && <><Rect width={width} height={object.height} stroke={accent} dash={[5, 3]} listening={false}/><Line name="resize-handle" points={[width - 16, object.height, width, object.height, width, object.height - 16]} stroke={accent} strokeWidth={3} hitStrokeWidth={16} lineCap="round" lineJoin="round" /></>}
+    {object.kind === 'image' ? <>{assetPath ? <ImageContent path={assetPath} width={width} height={object.height} crop={object.crop} normalizedCrop /> : <Rect width={width} height={object.height} fill="#f1f5f9" />}<Rect width={width} height={object.height} stroke={styleOf(object).strokeEnabled ? styleOf(object).stroke : undefined} strokeWidth={styleOf(object).strokeWidth} dash={styleOf(object).dash === 'solid' ? [] : [6, 4]}/>{selected && !object.locked && tool === 'select' && object.crop && (() => { const crop = object.crop; const left = crop.x * width, top = crop.y * object.height, right = left + crop.width * width, bottom = top + crop.height * object.height; return <><Rect name="crop-move-handle" x={left} y={top} width={crop.width * width} height={crop.height * object.height} stroke="#e08a27" dash={[5, 3]} strokeWidth={2} fill="rgba(224,138,39,.08)" /><Text name="editor-decoration" x={4} y={4} text={t('拖动裁剪框或边角调整', 'Drag crop or corners')} fontSize={10} fill="#a65c15" listening={false} />{([['nw', left, top], ['ne', right, top], ['sw', left, bottom], ['se', right, bottom]] as const).map(([corner, x, y]) => <Rect key={corner} name={`crop-resize-${corner}`} x={x - 6} y={y - 6} width={12} height={12} fill="#e08a27" cornerRadius={2} hitStrokeWidth={14} />)}</>; })()}</> : null}
+    {(selected || tool === 'arrow') && object.connectionPoints?.map(point => <Circle key={point.id} name={`connection-point:${point.id} editor-decoration`} x={point.x * width} y={point.y * object.height} radius={4 / scale} fill={accent} stroke={colorToHex(tokens.card)} strokeWidth={1 / scale} hitStrokeWidth={10 / scale}/>) }
+  </Group>;
+}
+
+/** 选区独立于素材透明度及叠放顺序，轮廓和手柄始终保持固定屏幕尺寸。 */
+function SelectionOutline({ object, scale, accent, surface, resizable }: { object: CanvasObject; scale: number; accent: string; surface: string; resizable: boolean }) {
+  const width = object.kind === 'media' ? mediaWidth(object) : object.width, height = object.height;
+  const handle = Math.min(12 / scale, width / 2, height / 2);
+  return <Group name={`object:${object.id} editor-decoration`} x={object.x + width / 2} y={object.y + height / 2} offsetX={width / 2} offsetY={height / 2} rotation={object.rotation ?? 0}>
+    <Rect width={width} height={height} stroke={surface} strokeWidth={4 / scale} listening={false} />
+    <Rect width={width} height={height} stroke={accent} strokeWidth={2 / scale} listening={false} />
+    {([[0, 0], [width, 0], [0, height]] as const).map(([x, y], index) => <Rect key={index} x={x - 2.5 / scale} y={y - 2.5 / scale} width={5 / scale} height={5 / scale} fill={surface} stroke={accent} strokeWidth={1.5 / scale} listening={false} />)}
+    {resizable && !object.locked && object.kind !== 'media' && <Line name="resize-handle editor-decoration" points={[width - handle, height, width, height, width, height - handle]} stroke={accent} strokeWidth={3 / scale} hitStrokeWidth={16 / scale} lineCap="round" lineJoin="round" />}
   </Group>;
 }
 
@@ -178,7 +225,7 @@ function objectIdFromNode(node: Konva.Node): string | null {
   let current: Konva.Node | null = node;
   while (current) {
     const name = current.name();
-    if (name.startsWith('object:')) return name.slice(7);
+    if (name.startsWith('object:')) return name.split(' ')[0].slice(7);
     current = current.getParent();
   }
   return null;
@@ -227,6 +274,7 @@ function ConnectionHead({ x, y, angleDeg, head, color, strokeWidth, headSize }: 
 function ConnectionView({ connection, document, accent, selected }: {
   connection: ProjectDocument['connections'][number]; document: ProjectDocument; accent: string; selected: boolean;
 }) {
+  const { tokens } = useTheme();
   const start = resolveAnchor(document, connection.from), end = resolveAnchor(document, connection.to);
   const from = resolveAnchor(document, connection.from, end ?? undefined), to = resolveAnchor(document, connection.to, start ?? undefined);
   if (!from || !to) return null;
@@ -234,7 +282,7 @@ function ConnectionView({ connection, document, accent, selected }: {
     : connection.routing === 'curve' ? [from.x, from.y, from.x + (to.x - from.x) * .45, from.y, to.x - (to.x - from.x) * .45, to.y, to.x, to.y]
     : [from.x, from.y, to.x, to.y];
   const style = connection.style ?? {};
-  const color = style.color ?? accent;
+  const color = canvasInk(style.color ?? accent, [colorToHex(tokens.background)]);
   const strokeWidth = style.strokeWidth ?? 2;
   const dash = style.dash === 'custom' ? style.customDash ?? [8, 5] : dashPattern(style.dash ?? 'dashed');
   const lastX = points[points.length - 2], lastY = points[points.length - 1];
@@ -243,8 +291,11 @@ function ConnectionView({ connection, document, accent, selected }: {
   const startAngle = (Math.atan2(points[1] - points[3], points[0] - points[2]) * 180) / Math.PI;
   const pathProps = { bezier: connection.routing === 'curve', tension: connection.routing === 'elbow' && style.rounded ? 0.14 : 0 };
   return <Group name={`connection:${connection.id}`} opacity={style.opacity ?? 1}>
+    {selected && <>
+      <Line points={points} stroke={colorToHex(tokens.card)} strokeWidth={strokeWidth + 6 / document.camera.scale} listening={false} {...pathProps} />
+      <Line points={points} stroke={accent} strokeWidth={strokeWidth + 4 / document.camera.scale} listening={false} {...pathProps} />
+    </>}
     <Line points={points} stroke={color} strokeWidth={strokeWidth} dash={dash} hitStrokeWidth={14} {...pathProps} />
-    {selected && <Line points={points} stroke={accent} strokeWidth={strokeWidth + 4} dash={[4, 4]} opacity={0.35} listening={false} {...pathProps} />}
     <ConnectionHead x={lastX} y={lastY} angleDeg={endAngle} head={style.endHead ?? 'arrow'} color={color} strokeWidth={strokeWidth} headSize={style.headSize} />
     <ConnectionHead x={points[0]} y={points[1]} angleDeg={startAngle} head={style.startHead ?? 'none'} color={color} strokeWidth={strokeWidth} headSize={style.headSize} />
     {style.label && <Text x={(from.x + to.x) / 2 - 60} y={(from.y + to.y) / 2 - 10} width={120} align="center" text={style.label} fontSize={14} fill={color} />}
@@ -257,7 +308,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
   trimMode: boolean;
   analysis: Record<string, MediaAnalysis>;
   placementGhost?: CanvasObject | null;
-  onSelect(ids: string[]): void; onTool(tool: Tool): void; onSpacePan(): void; onOpenNote(noteId: string): void; onOpenInspector(): void;
+  onSelect(ids: string[]): void; onTool(tool: Tool): void; onSpacePan(): void; onOpenNote(noteId: string): void; onOpenInspector(tab?: string): void;
 }) {
   const { t } = useLanguage();
   const { tokens } = useTheme();
@@ -267,6 +318,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
   const setPlayback = usePlaybackStore(state => state.setPlayback);
   const selectedConnections = useInteractionStore(state => state.selectedConnections);
   const setSelectedConnections = useInteractionStore(state => state.setSelectedConnections);
+  const finishTool = useInteractionStore(state => state.finishTool);
   const onPlayback = (mediaId: string, timeUs: number, play: boolean) => setPlayback({ mediaId, timeUs, play });
   const gesture = useRef<Gesture | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -292,18 +344,30 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
   const previewLine = useRef<Konva.Line | null>(null);
   const previewRect = useRef<Konva.Rect | null>(null);
   const space = useRef(false);
-  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
-  const textarea = useRef<HTMLTextAreaElement | null>(null);
-  useEffect(() => { textarea.current?.focus(); }, [editing?.id]);
-  const commitText = (value?: string) => {
+  const [editing, setEditing] = useState<{ id: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<CanvasMenuTarget | null>(null);
+  const [viewingStack, setViewingStack] = useState<string | null>(null);
+  useEffect(() => {
+    const element = stageRef.current?.container(); if (!element) return;
+    element.tabIndex = 0;
+    const menuKey = (event: KeyboardEvent) => {
+      if (tool !== 'select' || !(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) return;
+      event.preventDefault(); event.stopPropagation();
+      const box = element.getBoundingClientRect(), object = editor.document.objects.find(object => selected.includes(object.id)), camera = editor.document.camera;
+      setContextMenu({ x: box.left + (object ? camera.x + object.x * camera.scale : 30), y: box.top + (object ? camera.y + (object.y + object.height) * camera.scale : 30), ids: selected, connections: selectedConnections });
+    };
+    element.addEventListener('keydown', menuKey); return () => element.removeEventListener('keydown', menuKey);
+  }, [editor, selected, selectedConnections, tool]);
+  const commitText = (text: RichTextDocument, height: number) => {
     if (!editing) return;
-    const text = value ?? textarea.current?.value ?? editing.text;
-    const original = document.objects.find(item => item.id === editing.id);
-    if (original && ('text' in original || 'fill' in original) && original.text !== text) editor.execute(draft => { const target = draft.objects.find(item => item.id === editing.id); if (target && ('text' in target || 'fill' in target)) target.text = text; });
+    editor.execute(draft => {
+      const target = draft.objects.find(item => item.id === editing.id);
+      if (target && isTextObject(target)) { target.text = text; if (target.kind === 'text') target.height = height; }
+    });
     setEditing(null);
   };
   useEffect(() => {
-    const down = (event: KeyboardEvent) => { if (event.code === 'Space' && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) space.current = true; };
+    const down = (event: KeyboardEvent) => { if (event.code === 'Space' && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLElement && event.target.isContentEditable))) space.current = true; };
     const up = (event: KeyboardEvent) => { if (event.code === 'Space') space.current = false; };
     addEventListener('keydown', down); addEventListener('keyup', up);
     return () => { removeEventListener('keydown', down); removeEventListener('keyup', up); };
@@ -336,10 +400,19 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
       onSelect(document.objects.filter(item => item.x < right && item.x + (item.kind === 'media' ? mediaWidth(item) : item.width) > left && item.y < bottom && item.y + item.height > top).map(item => item.id));
       return;
     }
+    if (active.kind === 'text') {
+      const dragged = Math.hypot(end.x - active.start.x, end.y - active.start.y) * document.camera.scale > 6;
+      const object: CanvasObject = { id: crypto.randomUUID(), kind: 'text', x: dragged ? Math.min(active.start.x, end.x) : end.x, y: dragged ? Math.min(active.start.y, end.y) : end.y,
+        width: dragged ? Math.max(80, Math.abs(end.x - active.start.x)) : CANVAS_TEXT_WIDTH, height: dragged ? Math.max(42, Math.abs(end.y - active.start.y)) : 42,
+        groupId: null, text: emptyCanvasText(), fontSize: 18, color: fg, align: 'left' };
+      editor.addObject(object); onSelect([object.id]); finishTool(); setEditing({ id: object.id });
+      return;
+    }
     if (active.kind === 'brush') {
       if (active.points.length < 2) return;
       const xs = active.points.map(point => point.x), ys = active.points.map(point => point.y);
       editor.addObject({ id: crypto.randomUUID(), kind: 'stroke', x: Math.min(...xs), y: Math.min(...ys), width: Math.max(1, Math.max(...xs) - Math.min(...xs)), height: Math.max(1, Math.max(...ys) - Math.min(...ys)), groupId: null, points: active.points, color: fg, strokeWidth: 3 });
+      finishTool();
       return;
     }
     const targetId = objectIdFromNode(target);
@@ -347,13 +420,14 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
     if (active.markerId) {
       const targetObject = document.objects.find(item => item.id === targetId);
       const textId = editor.annotateMarker(active.markerId, targetObject?.kind === 'text' ? targetObject.id : end);
-      if (textId) { const note = editor.document.objects.find(item => item.id === textId); onSelect([textId]); setEditing({ id: textId, text: note?.kind === 'text' ? note.text : '' }); }
+      if (textId) { onSelect([textId]); setEditing({ id: textId }); }
     } else editor.execute(draft => {
-      const from: Anchor = active.sourceId ? { kind: 'object', objectId: active.sourceId } : { kind: 'free', point: active.start };
-      const to: Anchor = targetId && targetId !== active.sourceId ? { kind: 'object', objectId: targetId } : { kind: 'free', point: end };
+      const from: Anchor = active.sourceId ? { kind: 'object', objectId: active.sourceId, ...(active.pointId ? { pointId: active.pointId } : {}) } : { kind: 'free', point: active.start };
+      const targetPoint = target.name().split(' ')[0].startsWith('connection-point:') ? target.name().split(' ')[0].slice(17) : undefined;
+      const to: Anchor = targetId && targetId !== active.sourceId ? { kind: 'object', objectId: targetId, ...(targetPoint ? { pointId: targetPoint } : {}) } : { kind: 'free', point: end };
       draft.connections.push({ id: crypto.randomUUID(), from, to, routing: arrowRouting });
     });
-    onTool('select');
+    finishTool();
   };
   const editingObject = document.objects.find(item => item.id === editing?.id);
   // 可见区四周预绘一屏，保证短距离平移时对象已在 Konva 图层中。
@@ -365,13 +439,32 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
     right: (viewport.width - document.camera.x) / document.camera.scale + marginX,
     bottom: (viewport.height - document.camera.y) / document.camera.scale + marginY
   };
-  const visibleObjects = document.objects.filter(object => object.x < visible.right && object.x + (object.kind === 'media' ? mediaWidth(object) : object.width) > visible.left && object.y < visible.bottom && object.y + object.height > visible.top);
-  return <><Stage ref={stageRef} onContextMenu={event => { event.evt.preventDefault(); cancel(); }} width={viewport.width} height={viewport.height} x={document.camera.x} y={document.camera.y} scaleX={document.camera.scale} scaleY={document.camera.scale}
+  const visibleObjects = document.objects.filter(object => {
+    if (selected.includes(object.id)) return true;
+    const layout = isTextObject(object) ? canvasTextLayout(object) : null;
+    const top = object.y + Math.min(0, layout?.y ?? 0), bottom = object.y + Math.max(object.height, (layout?.y ?? 0) + (layout?.height ?? 0));
+    return object.x < visible.right && object.x + (object.kind === 'media' ? mediaWidth(object) : object.width) > visible.left && top < visible.bottom && bottom > visible.top;
+  });
+  const stack = document.objects.find(object => object.id === viewingStack);
+  const focusCanvas = () => { const element = stageRef.current?.container(); if (element) { element.tabIndex = -1; element.focus({ preventScroll: true }); } };
+  return <><Stage ref={stageRef} onContextMenu={event => {
+    event.evt.preventDefault();
+    const id = objectIdFromNode(event.target);
+    const connection = connectionIdFromNode(event.target);
+    const ids = id ? [...editor.expandObjectIds(selected.includes(id) ? selected : [id])] : [];
+    const connections = connection ? selectedConnections.includes(connection) ? selectedConnections : [connection] : [];
+    cancel();
+    if (tool === 'select') { if (connections.length) setSelectedConnections(connections); else onSelect(ids); focusCanvas(); setContextMenu({ x: event.evt.clientX, y: event.evt.clientY, ids, connections }); }
+  }} width={viewport.width} height={viewport.height} x={document.camera.x} y={document.camera.y} scaleX={document.camera.scale} scaleY={document.camera.scale}
     onMouseDown={event => {
       const stage = event.target.getStage(); if (!stage) return;
+      if (event.evt.button === 0) focusCanvas();
+      const hit = document.objects.find(object => object.id === objectIdFromNode(event.target));
+      if (hit?.locked && event.evt.button === 0 && !space.current) { onSelect([...editor.expandObjectIds([hit.id])]); return; }
       if (event.evt.button === 2) { event.evt.preventDefault(); cancel(); return; }
       if (event.evt.button === 1 || space.current) { gesture.current = { kind: 'pan', start: { x: event.evt.clientX, y: event.evt.clientY }, camera: { x: stage.x(), y: stage.y() } }; if (space.current) onSpacePan(); event.evt.preventDefault(); return; }
       const point = worldPoint(stage); if (!point) return;
+      if (tool === 'text') { gesture.current = { kind: 'text', start: point }; return; }
       if (tool === 'select' && event.evt.button === 0) {
         const connectionId = connectionIdFromNode(event.target);
         if (connectionId) {
@@ -381,7 +474,8 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
           return;
         }
       }
-      const handleName = event.target.name();
+      const handleName = event.target.name().split(' ')[0];
+      if (handleName === 'image-stack-open') return;
       const selectedMedia = selected.length === 1 ? document.objects.find(item => item.id === selected[0]) : undefined;
       if (tool === 'select' && selectedMedia?.kind === 'media') {
         const localX = point.x - selectedMedia.x, localY = point.y - selectedMedia.y;
@@ -406,6 +500,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
       if (tool === 'brush') { gesture.current = { kind: 'brush', points: [point] }; return; }
       const sourceId = objectIdFromNode(event.target);
       const source = document.objects.find(item => item.id === sourceId);
+      if (source && handleName.startsWith('connection-point:')) { gesture.current = { kind: 'arrow', start: point, sourceId, markerId: null, pointId: handleName.slice(17) }; return; }
       const noteId = handleName.startsWith('note:') ? handleName.slice(5) : null;
       if (noteId && selected.includes(sourceId!) && useInteractionStore.getState().selectedMarker === noteId) {
         gesture.current = { kind: 'arrow', start: point, sourceId, markerId: noteId }; return;
@@ -415,6 +510,7 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
         gesture.current = { kind: 'arrow', start: point, sourceId, markerId: null }; return;
       }
       if (tool === 'select' && source) {
+        if (document.objects.some(object => editor.expandObjectIds(selected.includes(source.id) ? selected : [source.id]).has(object.id) && object.locked)) return;
         if (handleName.startsWith('marker:') || event.target.getParent()?.name().startsWith('marker:')) return;
         if ((handleName === 'crop-move-handle' || handleName.startsWith('crop-resize-')) && source.kind === 'image') { const corner = handleName.replace('crop-resize-', ''); gesture.current = { kind: 'crop', start: point, object: source, crop: source.crop ?? { x: 0, y: 0, width: 1, height: 1 }, ...(corner === handleName ? {} : { corner: corner as 'nw' | 'ne' | 'sw' | 'se' }) }; return; }
         if (handleName === 'resize-handle') { gesture.current = { kind: 'resize', start: point, object: source }; return; }
@@ -541,25 +637,27 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
       const object = document.objects.find(item => item.id === id);
       if (!object) return;
       if (object.kind === 'note') { onOpenNote(object.noteId); return; }
+      if (object.kind === 'imageStack') { onSelect([object.id]); setViewingStack(object.id); return; }
+      if (object.locked) return;
       onSelect([object.id]);
       onOpenInspector();
       // 展开属性面板时同时恢复原位文字输入；未设置 text 的空形状也应可编辑。
-      if ('text' in object || 'fill' in object) setEditing({ id: object.id, text: object.text ?? '' });
+      if (isTextObject(object)) setEditing({ id: object.id });
     }}>
     <Layer>
-      {visibleObjects.map(object => { const asset = 'assetId' in object ? document.assets.find(item => item.id === object.assetId) : undefined; const note = object.kind === 'note' ? document.notes.find(item => item.id === object.noteId) : undefined; return <ObjectView scale={document.camera.scale} key={object.id} object={object} tool={tool} selected={selected.includes(object.id)} trimMode={trimMode && playback?.mediaId === object.id} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[object.id]} markers={document.markers.filter(marker => marker.mediaId === object.id)} playheadUs={playback?.mediaId === object.id ? playback.timeUs : undefined} note={note} onSelect={additive => onSelect(additive ? (selected.includes(object.id) ? selected.filter(id => id !== object.id) : [...selected, object.id]) : [object.id])} onSeek={(timeUs, play) => onPlayback(object.id, timeUs, play)} />; })}
+      {visibleObjects.map(object => { const asset = 'assetId' in object ? document.assets.find(item => item.id === object.assetId) : undefined; const note = object.kind === 'note' ? document.notes.find(item => item.id === object.noteId) : undefined; return <ObjectView assets={document.assets} onOpenStack={setViewingStack} scale={document.camera.scale} key={object.id} object={object} tool={tool} selected={selected.includes(object.id) && editing?.id !== object.id} hideText={editing?.id === object.id} trimMode={trimMode && playback?.mediaId === object.id} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[object.id]} markers={document.markers.filter(marker => marker.mediaId === object.id)} playheadUs={playback?.mediaId === object.id ? playback.timeUs : undefined} note={note} onSelect={additive => onSelect(additive ? (selected.includes(object.id) ? selected.filter(id => id !== object.id) : [...selected, object.id]) : [object.id])} onSeek={(timeUs, play) => onPlayback(object.id, timeUs, play)} />; })}
     </Layer>
     <Layer listening={false}>
       {placementGhost && (() => {
         const asset = 'assetId' in placementGhost ? document.assets.find(item => item.id === placementGhost.assetId) : undefined;
         const note = placementGhost.kind === 'note' ? document.notes.find(item => item.id === placementGhost.noteId) : undefined;
         // 新对象的虚影使用实际画布渲染器、相机缩放和落点，松手后几何保持一致。
-        return <ObjectView scale={document.camera.scale} object={{ ...placementGhost, style: { ...styleOf(placementGhost), opacity: .45 } }} tool="select" selected={false} trimMode={false} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} markers={[]} note={note} onSelect={() => undefined} onSeek={() => undefined} />;
+        return <ObjectView assets={document.assets} onOpenStack={setViewingStack} scale={document.camera.scale} object={{ ...placementGhost, style: { ...styleOf(placementGhost), opacity: .45 } }} tool="select" selected={false} trimMode={false} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} markers={[]} note={note} onSelect={() => undefined} onSeek={() => undefined} />;
       })()}
       {/* 虚影独立于原对象绘制，拖动期间不会改变项目文档。 */}
-      {ghosts.map(ghost => { const asset = 'assetId' in ghost ? document.assets.find(item => item.id === ghost.assetId) : undefined; const note = ghost.kind === 'note' ? document.notes.find(item => item.id === ghost.noteId) : undefined; return <ObjectView scale={document.camera.scale} key={`ghost-${ghost.id}`} object={{ ...ghost, style: { ...styleOf(ghost), opacity: 0.4 } }} tool={tool} selected={false} trimMode={false} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[ghost.id]} markers={[]} note={note} onSelect={() => undefined} onSeek={() => undefined} />; })}
+      {ghosts.map(ghost => { const asset = 'assetId' in ghost ? document.assets.find(item => item.id === ghost.assetId) : undefined; const note = ghost.kind === 'note' ? document.notes.find(item => item.id === ghost.noteId) : undefined; return <ObjectView assets={document.assets} onOpenStack={setViewingStack} scale={document.camera.scale} key={`ghost-${ghost.id}`} object={{ ...ghost, style: { ...styleOf(ghost), opacity: 0.4 } }} tool={tool} selected={false} trimMode={false} assetPath={asset?.path} assetName={asset?.name} assetKind={asset?.kind} analysis={analysis[ghost.id]} markers={[]} note={note} onSelect={() => undefined} onSeek={() => undefined} />; })}
       {markerGhost && !markerGhost.targetId && <Group x={markerGhost.x} y={markerGhost.y} opacity={0.5} listening={false}>
-        <Rect width={220} height={72} fill="#fffef5" stroke={accent} strokeWidth={1} dash={[5, 3]} cornerRadius={6} />
+        <Rect width={220} height={72} fill={colorToHex(tokens.card)} stroke={accent} strokeWidth={1} dash={[5, 3]} cornerRadius={6} />
         <Text x={12} y={27} width={196} text={t('拖出笔记', 'Drag to annotate')} fontSize={16} fill={accent} listening={false} />
       </Group>}
       {markerGhost?.targetId && (() => { const target = document.objects.find(item => item.id === markerGhost.targetId); if (!target || target.kind !== 'text') return null; return <Rect x={target.x} y={target.y} width={target.width} height={target.height} stroke={accent} strokeWidth={2} dash={[4, 4]} fill={colorToRgba(tokens.primary, 0.12)} listening={false} />; })()}
@@ -574,13 +672,11 @@ export function CanvasStage({ editor, document, viewport, tool, arrowRouting, se
       <Line ref={previewLine} points={[]} stroke={accent} strokeWidth={2} listening={false} visible={false} />
       <Rect ref={previewRect} stroke={accent} dash={[5, 4]} fill={colorToRgba(tokens.primary, 0.13)} listening={false} visible={false} />
     </Layer>
-  </Stage>{editing && editingObject && ('text' in editingObject || 'fill' in editingObject) && <>
-    {/* 输入框的前景色与背景色统一跟随主题，保证任意对象文字颜色下都能看清输入内容。 */}
-    <textarea ref={textarea} className="canvas-text-editor" aria-label={t('编辑画布文字', 'Edit canvas text')} value={editing.text}
-      onChange={event => setEditing({ ...editing, text: event.target.value })}
-      onBlur={event => commitText(event.currentTarget.value)}
-      onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setEditing(null); if (event.key === 'Enter' && event.ctrlKey) commitText(event.currentTarget.value); }}
-      style={{ left: editingObject.x * document.camera.scale + document.camera.x, top: editingObject.y * document.camera.scale + document.camera.y, width: editingObject.width * document.camera.scale, minHeight: editingObject.height * document.camera.scale, fontSize: (editingObject.fontSize ?? 18) * document.camera.scale, textAlign: editingObject.align }} />
-    <button className="canvas-text-done" aria-label={t('完成文字编辑', 'Finish text editing')} onMouseDown={event => event.preventDefault()} onClick={() => commitText(textarea.current?.value)} style={{ left: (editingObject.x + editingObject.width) * document.camera.scale + document.camera.x + 8, top: editingObject.y * document.camera.scale + document.camera.y }}>{t('完成', 'Done')}</button>
-  </>}</>;
+    <Layer>
+      {visibleObjects.filter(object => selected.includes(object.id) && editing?.id !== object.id).map(object => <SelectionOutline key={object.id} object={object} scale={document.camera.scale} accent={accent} surface={colorToHex(tokens.card)} resizable={tool === 'select'} />)}
+    </Layer>
+  </Stage>{editing && editingObject && isTextObject(editingObject) && <CanvasTextEditor key={editing.id} object={canvasDisplayObject(editingObject, tokens)} camera={document.camera} onCommit={commitText} onCancel={() => setEditing(null)} />}
+    <CanvasObjectMenu target={contextMenu} editor={editor} close={() => setContextMenu(null)} select={onSelect} focus={focusCanvas} editText={id => setEditing({ id })} inspect={onOpenInspector} openStack={setViewingStack} openNote={onOpenNote} connect={() => onTool('arrow')} exportGraphic={(objects, format) => copyCanvasGraphic(stageRef.current!, objects.map(object => canvasDisplayObject(object, tokens)), format)}/>
+    {stack?.kind === 'imageStack' && <ImageStackViewer key={stack.id} stack={stack} assets={document.assets} editor={editor} onClose={() => setViewingStack(null)} />}
+  </>;
 }

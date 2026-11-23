@@ -1,3 +1,4 @@
+import { canvasTextFromPlainText } from '../../src/core/canvasText';
 // 使用示例：npm run test:e2e。以实际创作规模验证多媒体、多实例和数十个画布对象的打开与保存。
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
@@ -34,7 +35,7 @@ async function seedProject(root: string): Promise<{ folder: string; document: Pr
   }
   const notes: Extract<CanvasObject, { kind: 'text' }>[] = [];
   for (let index = 0; index < 5; index++) {
-    const note: Extract<CanvasObject, { kind: 'text' }> = { id: crypto.randomUUID(), kind: 'text', x: 345 + index * 150, y: 790, width: 130, height: 55, groupId: null, text: `中文说明 ${index + 1}`, fontSize: 16, color: '#172033', align: 'left' };
+    const note: Extract<CanvasObject, { kind: 'text' }> = { id: crypto.randomUUID(), kind: 'text', x: 345 + index * 150, y: 790, width: 130, height: 55, groupId: null, text: canvasTextFromPlainText(`中文说明 ${index + 1}`), fontSize: 16, color: '#172033', align: 'left' };
     notes.push(note);
     document.objects.push(note);
   }
@@ -64,7 +65,7 @@ test('实际创作规模项目能打开、显示素材并保存新增对象', as
     await mkdir(outside);
     await writeFile(path.join(outside, 'secret.txt'), '项目外文件', 'utf8');
     await symlink(outside, path.join(seeded.folder, 'assets', 'external'), 'junction');
-    const environment = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
+    const environment: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: testRoot };
     delete environment.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env: environment });
     const page = await application.firstWindow();
@@ -126,7 +127,7 @@ test('实际创作规模项目能打开、显示素材并保存新增对象', as
     await expect(page.locator('.media-row').first().getByRole('button', { name: '暂停' })).toBeVisible();
     await expect(page.locator('.media-row').first().getByRole('button', { name: '播放', exact: true })).toBeVisible({ timeout: 5_000 });
     await expect(page.locator('.media-row').first()).toContainText('1.6s / 1.6s');
-    await expect.poll(async () => page.locator('audio').evaluate(element => element.currentTime)).toBeGreaterThan(1.55);
+    await expect.poll(async () => page.locator('audio').evaluate((element: HTMLAudioElement) => element.currentTime)).toBeGreaterThan(1.55);
     await expect(page.locator('audio')).toHaveJSProperty('paused', true);
     await page.getByRole('button', { name: '矩形', exact: true }).click();
     await page.locator('header button').first().click();

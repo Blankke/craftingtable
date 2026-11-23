@@ -14,7 +14,7 @@ for (const scale of [1, 1.5]) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'workbench-release-'));
   const folder = path.join(root, 'projects', 'release-preview');
   await mkdir(path.join(folder, 'assets'), { recursive: true });
-  const document = { schemaVersion: 3, id: crypto.randomUUID(), name: '城市声音 · 创作工作台', revision: 0, camera: { x: 0, y: 0, scale: 1 }, assets: [], objects: [], notes: [], markers: [], connections: [], groups: [] };
+  const document = { schemaVersion: 4, id: crypto.randomUUID(), name: '城市声音 · 创作工作台', revision: 0, camera: { x: 0, y: 0, scale: 1 }, assets: [], objects: [], notes: [], markers: [], connections: [], groups: [] };
   for (const [index, kind, file] of [[0, 'video', 'sample.mp4'], [1, 'audio', 'sample.wav']]) {
     const assetId = crypto.randomUUID();
     await copyFile(path.resolve('tests/fixtures', file), path.join(folder, 'assets', file));

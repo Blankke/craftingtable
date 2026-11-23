@@ -1,6 +1,7 @@
 // 首页项目预览只读取项目快照；SVG 由项目对象生成，媒体缩略图由后台传入。
 import type { ProjectDocument } from './document';
 import { noteText } from './note';
+import { canvasTextPlainText } from './canvasText';
 import { shapePath } from './shapeGeometry';
 
 export interface ProjectPreview {
@@ -28,10 +29,14 @@ export function buildProjectPreview(document: ProjectDocument, mediaByAsset: Rea
       const width = Math.max(2, object.width * scale), height = Math.max(2, object.height * scale);
       const rotation = object.rotation ? `rotate(${object.rotation} ${x + width / 2} ${y + height / 2})` : '';
       const rotated = (content: string) => rotation ? `<g transform="${rotation}">${content}</g>` : content;
+      if (object.kind === 'imageStack') {
+        const cover = mediaByAsset.get(object.images[0].assetId);
+        return rotated(`<rect x="${x + 8}" y="${y - 8}" width="${width}" height="${height}" rx="4" fill="#dde3ee" stroke="#8895bd"/><rect x="${x + 4}" y="${y - 4}" width="${width}" height="${height}" rx="4" fill="#eef1f7" stroke="#8895bd"/>${cover ? `<image href="${xml(cover)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice"/>` : `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#e4e9f2"/>`}<text x="${x + 6}" y="${y + height - 6}" font-size="12" fill="#172033">${object.images.length} 张</text>`);
+      }
       if ((object.kind === 'image' || object.kind === 'media') && mediaByAsset.has(object.assetId)) {
         return rotated(`<image href="${xml(mediaByAsset.get(object.assetId)!)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice"/>`);
       }
-      if (object.kind === 'text') return rotated(`<text x="${x}" y="${y + Math.min(16, height)}" font-size="${Math.max(7, Math.min(15, object.fontSize * scale))}" fill="${xml(object.color)}">${xml(object.text.slice(0, 40))}</text>`);
+      if (object.kind === 'text') return rotated(`<text x="${x}" y="${y + Math.min(16, height)}" font-size="${Math.max(7, Math.min(15, object.fontSize * scale))}" fill="${xml(object.color)}">${xml(canvasTextPlainText(object.text).slice(0, 40))}</text>`);
       if (object.kind === 'ellipse') return rotated(`<ellipse cx="${x + width / 2}" cy="${y + height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${xml(object.fill)}" stroke="${xml(object.stroke)}"/>`);
       const path = shapePath(object.kind);
       if (path && 'fill' in object && 'stroke' in object) return rotated(`<path d="${path}" transform="translate(${x} ${y}) scale(${width / 100} ${height / 100})" fill="${xml(object.fill)}" stroke="${xml(object.stroke)}"/>`);

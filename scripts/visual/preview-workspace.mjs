@@ -35,7 +35,7 @@ try {
     await page.addInitScript(() => {
       let saved;
       window.workbench = {
-        getSettings: async () => ({ projectsRoot: '/preview/projects' }),
+        getSettings: async () => ({ projectsRoot: '/preview/projects', documentSchemaVersion: 4 }),
         listProjects: async () => [],
         createProject: async () => '/preview/projects/workspace',
         saveProject: async document => { saved = structuredClone(document); window.__previewSnapshot = saved; return { revision: document.revision }; },

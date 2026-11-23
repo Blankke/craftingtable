@@ -1,0 +1,10 @@
+/* 参考桌面编辑器：紧凑分组、清晰的操作图标和右对齐快捷键；长菜单在窗口内滚动。 */
+.context-menu{position:fixed;z-index:300;min-width:248px;max-width:min(340px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:5px;border:1px solid var(--wb-border);border-radius:9px;background:var(--wb-card);color:var(--wb-foreground);box-shadow:0 8px 28px #0003;font-size:13px}
+.context-menu>button{display:flex;align-items:center;gap:10px;width:100%;min-height:32px;padding:6px 10px;border:0;border-radius:4px;background:transparent;color:inherit;text-align:left;white-space:nowrap;outline-offset:-2px}
+.context-menu>button:hover:not(:disabled),.context-menu>button:focus-visible,.context-menu>button[aria-expanded=true]{background:var(--wb-secondary)}
+.context-menu>button:disabled{opacity:.38;cursor:default}.context-menu>button.is-danger{color:#d93c3c}
+.context-menu .menu-icon{display:grid;place-items:center;flex:0 0 18px}.menu-icon>svg{width:16px;height:16px;stroke-width:1.7}
+.context-menu .menu-label{flex:1;overflow:hidden;text-overflow:ellipsis}.context-menu kbd{font-family:inherit;font-size:11px;color:var(--wb-muted-foreground);margin-left:20px}
+.context-menu>button.menu-separator{margin-top:6px;position:relative}.context-menu>button.menu-separator:before{content:'';position:absolute;top:-4px;left:5px;right:5px;border-top:1px solid var(--wb-border);pointer-events:none}
+.command-dialog{width:min(440px,90vw);max-height:85vh;overflow:auto;padding:22px;border:1px solid var(--wb-border);border-radius:10px;color:var(--wb-foreground);background:var(--wb-card);box-shadow:0 16px 60px #0004}
+.command-dialog::backdrop{background:#0006}.command-dialog h2{font-size:17px;margin:0 0 16px}.command-dialog label{display:grid;gap:7px;margin:12px 0}.command-dialog textarea{min-height:110px;resize:vertical}.command-dialog footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.command-dialog [role=alert]{color:#d93c3c;font-size:12px}

@@ -18,13 +18,13 @@ test('历史项目打开后备份原件并升级为当前格式', async () => {
     await mkdir(path.join(folder, 'assets'), { recursive: true });
     await mkdir(path.join(folder, 'recovery'), { recursive: true });
     await writeFile(path.join(folder, 'project.json'), JSON.stringify({ ...source, schemaVersion: 2, notes: [] }));
-    const environment = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete environment.ELECTRON_RUN_AS_NODE;
+    const environment: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete environment.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env: environment });
     const page = await application.firstWindow();
     await expect(page.getByRole('button', { name: '历史项目' })).toBeVisible();
     await page.getByRole('button', { name: '历史项目' }).click();
     await expect(page.locator('.canvas')).toBeVisible();
-    await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 3 });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 4 });
     const upgraded = JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8')) as { objects: { id: string }[] };
     expect(upgraded.objects).toEqual([{ id: source.objects[0].id, kind: 'rectangle', x: 24, y: 36, width: 180, height: 90, groupId: null, fill: '#ffffff', stroke: '#000000' }]);
     expect((await readdir(path.join(folder, 'recovery'))).some(name => name.startsWith('pre-migration-'))).toBe(true);
@@ -50,16 +50,16 @@ test('无笔记项目与恢复快照均可安全升级', async () => {
     await writeFile(path.join(firstFolder, 'project.json'), JSON.stringify(early));
     await writeFile(path.join(recoveryFolder, 'project.json'), '{broken');
     await writeFile(path.join(recoveryFolder, 'recovery', 'latest.json'), JSON.stringify({ ...recovered, schemaVersion: 2, notes: [] }));
-    const environment = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete environment.ELECTRON_RUN_AS_NODE;
+    const environment: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete environment.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env: environment });
     const page = await application.firstWindow();
     await page.getByRole('button', { name: '无笔记项目' }).click();
     await expect(page.locator('.canvas')).toBeVisible();
-    await expect.poll(async () => JSON.parse(await readFile(path.join(firstFolder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 3 });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(firstFolder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 4 });
     await page.locator('header button').first().click();
     await page.getByRole('button', { name: '恢复快照项目' }).click();
     await expect(page.locator('.canvas')).toBeVisible();
-    await expect.poll(async () => JSON.parse(await readFile(path.join(recoveryFolder, 'project.json'), 'utf8')) as { schemaVersion: number; objects: unknown[] }).toMatchObject({ schemaVersion: 3, objects: [expect.anything()] });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(recoveryFolder, 'project.json'), 'utf8')) as { schemaVersion: number; objects: unknown[] }).toMatchObject({ schemaVersion: 4, objects: [expect.anything()] });
     expect((await readdir(path.join(recoveryFolder, 'recovery'))).some(name => name.startsWith('pre-migration-'))).toBe(true);
   } finally {
     await application?.close().catch(() => undefined);
@@ -76,7 +76,7 @@ test('迁移校验失败时保留原始文件并提供重试', async () => {
     source.objects.push({ id: crypto.randomUUID(), kind: 'image', assetId: crypto.randomUUID(), x: 0, y: 0, width: 100, height: 80, groupId: null });
     const original = JSON.stringify({ ...source, schemaVersion: 2, notes: [] });
     await mkdir(folder, { recursive: true }); await writeFile(path.join(folder, 'project.json'), original);
-    const environment = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete environment.ELECTRON_RUN_AS_NODE;
+    const environment: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete environment.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ executablePath: electronExecutable, args: ['.'], env: environment });
     const page = await application.firstWindow();
     await page.getByRole('button', { name: '损坏项目' }).click();

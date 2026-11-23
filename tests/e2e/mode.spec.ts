@@ -12,7 +12,7 @@ test('开屏 Hello World、笔记/画布来回切换与分栏', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'workbench-mode-'));
   let app: ElectronApplication | undefined;
   try {
-    const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
+    const env: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
     app = await _electron.launch({ executablePath: electronExecutable, args: electronArgs, env });
     const page = await app.firstWindow();
     // 开屏以本地 Indie Flower 72px 路径描绘 Hello World。
@@ -105,7 +105,7 @@ test('颜色弹层、图形轮廓与箭头头部预览', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'workbench-color-'));
   let app: ElectronApplication | undefined;
   try {
-    const env = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
+    const env: Record<string, string> = { ...process.env, WORKBENCH_E2E_ROOT: root }; delete env.ELECTRON_RUN_AS_NODE;
     app = await _electron.launch({ executablePath: electronExecutable, args: electronArgs, env });
     const page = await app.firstWindow();
     await page.locator('.plus').click();

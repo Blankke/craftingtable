@@ -9,16 +9,17 @@ import texmath from 'markdown-it-texmath';
 import katex from 'katex';
 import hljs from 'highlight.js';
 import type { Token } from 'markdown-it';
-import type { Note, NoteDocument, NoteJsonNode } from './note';
+import type { Note } from './note';
+import type { RichTextDocument, RichTextNode } from './richText';
 import type { ProjectDocument } from './document';
 
-type TextMark = NonNullable<NoteJsonNode['marks']>[number];
+type TextMark = NonNullable<RichTextNode['marks']>[number];
 type MarkdownSource = { text: string; positions: number[]; marks: Map<number, TextMark[]> };
 type RenderContext = MarkdownSource & { assets: ProjectDocument['assets']; notes: Pick<Note, 'id' | 'name'>[]; mediaUrl(path: string): string };
 const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
 
 /** 正文、阅读映射和导出共用序列化规则；手写语法不转义，生成的符号没有正文位置。 */
-export function noteMarkdownSource(document: NoteDocument, exportAssets?: ProjectDocument['assets']): MarkdownSource {
+export function noteMarkdownSource(document: RichTextDocument, exportAssets?: ProjectDocument['assets']): MarkdownSource {
   const marks = new Map<number, TextMark[]>();
   type Fragment = { text: string; positions: number[] };
   const literal = (text: string): Fragment => ({ text, positions: Array(text.length).fill(-1) });
@@ -32,8 +33,8 @@ export function noteMarkdownSource(document: NoteDocument, exportAssets?: Projec
     }
     return join(...pieces);
   };
-  const sizeOf = (node: NoteJsonNode): number => node.type === 'text' ? (node.text ?? '').length : ['projectImage', 'hardBreak', 'horizontalRule'].includes(node.type) ? 1 : 2 + (node.content ?? []).reduce((size, child) => size + sizeOf(child), 0);
-  const visit = (node: NoteJsonNode, position: number): Fragment => {
+  const sizeOf = (node: RichTextNode): number => node.type === 'text' ? (node.text ?? '').length : ['projectImage', 'hardBreak', 'horizontalRule'].includes(node.type) ? 1 : 2 + (node.content ?? []).reduce((size, child) => size + sizeOf(child), 0);
+  const visit = (node: RichTextNode, position: number): Fragment => {
     if (node.type === 'text') {
       const text = node.text ?? '';
       let result: Fragment = { text, positions: Array.from({ length: text.length }, (_, index) => position + index) };
@@ -86,7 +87,7 @@ export function noteMarkdownSource(document: NoteDocument, exportAssets?: Projec
   return { ...join(...fragments), marks };
 }
 
-export function exportNoteMarkdown(document: NoteDocument, assets: ProjectDocument['assets']): string {
+export function exportNoteMarkdown(document: RichTextDocument, assets: ProjectDocument['assets']): string {
   return noteMarkdownSource(document, assets).text.trimEnd();
 }
 
@@ -252,7 +253,7 @@ function renderText(token: Token, env: RenderContext): string {
 markdown.renderer.rules.text = (tokens, index, _options, rawEnv) => renderText(tokens[index], rawEnv as RenderContext);
 markdown.renderer.rules.code_inline = (tokens, index, _options, rawEnv) => `<code>${renderText(tokens[index], rawEnv as RenderContext)}</code>`;
 
-export function renderNoteMarkdown(document: NoteDocument, assets: ProjectDocument['assets'], notes: Pick<Note, 'id' | 'name'>[] = [], mediaUrl = (path: string) => path): string {
+export function renderNoteMarkdown(document: RichTextDocument, assets: ProjectDocument['assets'], notes: Pick<Note, 'id' | 'name'>[] = [], mediaUrl = (path: string) => path): string {
   const source = noteMarkdownSource(document);
   return markdown.render(source.text, { ...source, assets, notes, mediaUrl } satisfies RenderContext);
 }

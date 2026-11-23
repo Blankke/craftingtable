@@ -8,6 +8,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { newDocument, type CanvasObject, type ProjectDocument } from '../../src/core/document';
 import { styleOf } from '../../src/core/appearance';
+import { canvasTextFromPlainText, canvasTextPlainText } from '../../src/core/canvasText';
+import type { Editor as TextEditor } from '@tiptap/core';
 
 for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) {
   test(`画布双击文字编辑 ${theme} ${scale * 100}%`, async ({}, testInfo) => {
@@ -18,7 +20,7 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) {
     await copyFile(path.resolve('tests/fixtures/sample.wav'), path.join(folder, 'assets', 'sample.wav'));
     const document = newDocument('画布文字编辑验收');
     const ink = theme === 'dark' ? '#e4e8f2' : '#172033';
-    const text: CanvasObject = { id: crypto.randomUUID(), kind: 'text', x: 80, y: 90, width: 240, height: 90, groupId: null, text: '拍摄提纲', fontSize: 18, color: ink, align: 'left' };
+    const text: CanvasObject = { id: crypto.randomUUID(), kind: 'text', x: 80, y: 90, width: 240, height: 90, groupId: null, text: canvasTextFromPlainText('拍摄提纲'), fontSize: 18, color: ink, align: 'left' };
     // 特意省略可选 text 字段，验证从未输入文字的透明形状也能进入编辑。
     const shape: CanvasObject = { id: crypto.randomUUID(), kind: 'rectangle', x: 410, y: 90, width: 240, height: 90, groupId: null, fill: 'transparent', stroke: '#5268e8', color: ink };
     shape.style = { ...styleOf(shape), fillEnabled: false };
@@ -30,7 +32,7 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) {
     const saved = async (): Promise<ProjectDocument> => JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8'));
     const savedText = async (id: string) => {
       const object = (await saved()).objects.find(item => item.id === id);
-      return object && 'text' in object ? object.text : '';
+      return object && 'text' in object ? canvasTextPlainText(object.text) : '';
     };
     let app: ElectronApplication | undefined;
     try {
@@ -83,13 +85,19 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) {
         // 软断言在修复前收集三类对象的独立失败证据，仍将本用例标为失败。
         await expect.soft(input).toBeFocused({ timeout: 1500 });
         if (!await input.isVisible()) continue;
-        await expect(input).toHaveValue(original ?? '');
+        await expect(input).toHaveText(original ?? '');
         const revision = (await saved()).revision;
         const content = `${['文字提纲', '形状说明', '声音批注'][index]}：收录现场声音\n保留第二行`;
         await input.fill(content);
         // 普通 Enter 保留换行；输入内容不触发画布删除、标记或平移快捷键。
-        await input.press('End'); await input.press('Enter'); await page.keyboard.insertText('补充内容');
-        const finalText = await input.inputValue();
+        await input.press('Control+End');
+        // Chromium 的 selectionchange 异步传递，需等编辑器选区也到末尾，再发下一次按键。
+        await expect.poll(() => input.evaluate(element => {
+          const { state } = (element as HTMLElement & { editor: TextEditor }).editor;
+          return state.selection.empty && state.selection.to === state.doc.content.size - 1;
+        })).toBe(true);
+        await input.press('Enter'); await page.keyboard.insertText('补充内容');
+        const finalText = `${content}\n补充内容`;
         if (index === 0) await done.click();
         else if (index === 1) await input.press('Control+Enter');
         else await page.mouse.click(canvas.x + 740, canvas.y + 480);
@@ -103,7 +111,7 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) {
         await expect.poll(() => savedText(object.id)).toBe(finalText);
         // Esc 放弃本次输入，随后再双击仍可获取焦点，且不会新增撤销记录。
         await doubleClick(object); await expect(input).toBeFocused();
-        await expect(input).toHaveValue(finalText);
+        await expect(input).toContainText('补充内容');
         const beforeCancel = (await saved()).revision;
         await input.fill('这段输入应被取消'); await input.press('Escape');
         await expect(input).toHaveCount(0);
@@ -119,7 +127,7 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) {
       await page.getByRole('button', { name: document.name, exact: true }).click();
       for (const [id, content] of expectedTexts) {
         await doubleClick(final.objects.find(item => item.id === id)!);
-        await expect(input).toBeFocused(); await expect(input).toHaveValue(content); await input.press('Escape');
+        await expect(input).toBeFocused(); await expect(input).toContainText('补充内容'); await input.press('Escape');
       }
       expect(errors).toEqual([]);
     } finally {

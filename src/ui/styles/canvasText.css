@@ -1,0 +1,28 @@
+/* 画布静态字形、尺寸测量和原位编辑共用排版；SVG 会内嵌同一份样式。 */
+.canvas-rich-text{box-sizing:border-box;width:100%;padding:8px;margin:0;outline:none;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;text-rendering:optimizeLegibility}
+.canvas-rich-text *{box-sizing:border-box}
+.canvas-rich-text p{margin:0;min-height:1.4em}
+.canvas-rich-text h1,.canvas-rich-text h2,.canvas-rich-text h3,.canvas-rich-text h4,.canvas-rich-text h5,.canvas-rich-text h6{margin:.35em 0 .2em;font-weight:700;line-height:1.25}
+.canvas-rich-text h1{font-size:1.8em}.canvas-rich-text h2{font-size:1.5em}.canvas-rich-text h3{font-size:1.25em}.canvas-rich-text h4,.canvas-rich-text h5,.canvas-rich-text h6{font-size:1.1em}
+.canvas-rich-text>:first-child{margin-top:0}.canvas-rich-text>:last-child{margin-bottom:0}
+.canvas-rich-text ul,.canvas-rich-text ol{margin:.25em 0;padding-left:1.5em;text-align:left}
+.canvas-rich-text li{margin:0}.canvas-rich-text li p{margin:0}
+.canvas-rich-text blockquote{margin:.4em 0;padding-left:.7em;border-left:3px solid currentColor;opacity:.85}
+.canvas-rich-text pre{margin:.4em 0;padding:.5em;border-radius:3px;background:rgba(128,128,128,.12);white-space:pre-wrap;overflow-wrap:anywhere;text-align:left}
+.canvas-rich-text code{font-family:Consolas,monospace;font-size:.9em;background:rgba(128,128,128,.12);padding:.05em .15em;border-radius:2px}
+.canvas-rich-text pre code{background:transparent;padding:0;font-size:1em}
+.canvas-rich-text a{color:inherit;text-decoration:underline}
+.canvas-rich-text hr{border:0;border-top:1px solid currentColor;margin:.6em 0}
+.canvas-rich-text table{border-collapse:collapse;table-layout:fixed;width:100%;margin:.4em 0;text-align:left}
+.canvas-rich-text td,.canvas-rich-text th{border:1px solid currentColor;padding:.25em .4em;vertical-align:top}
+.canvas-rich-text ul[data-type="taskList"]{list-style:none;padding-left:0}
+.canvas-rich-text li[data-type="taskItem"]{display:flex;align-items:flex-start;gap:.35em}
+.canvas-rich-text li[data-type="taskItem"]>label{flex:0 0 auto;line-height:1.4;display:block}
+.canvas-rich-text li[data-type="taskItem"]>label input{margin:0;width:.9em;height:.9em;vertical-align:middle}
+.canvas-rich-text li[data-type="taskItem"]>div{flex:1;min-width:0}
+.canvas-text-overlay{position:absolute;z-index:3;pointer-events:none;transform-origin:center center}
+.canvas-text-overlay .canvas-rich-text{pointer-events:auto;caret-color:currentColor;outline:1px solid var(--wb-primary);outline-offset:1px;background:transparent;color:inherit}
+.canvas-text-overlay .canvas-rich-text:focus{border:0;box-shadow:none}
+.canvas-text-overlay .canvas-text-done{pointer-events:auto;position:absolute;left:calc(100% + 8px);top:0;white-space:nowrap}
+.canvas-inspector-text{min-height:64px;border:1px solid var(--wb-border);border-radius:4px;background:var(--wb-card);color:var(--wb-foreground)}
+.canvas-inspector-text .canvas-rich-text{font-size:14px}

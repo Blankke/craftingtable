@@ -24,3 +24,8 @@ License: MIT. See OriginUI-MIT.txt in this directory.
 ThemeToggle 日月图标和运动参考：DHxWhy/CCgather components/ui/theme-switcher.tsx。
 来源：https://github.com/DHxWhy/CCgather；Copyright 2026 CCgather (DHxWhy)。
 Apache-2.0 授权全文见 CCgather-Apache-2.0.txt。本项目改为主题存储驱动的 1740ms 可逆过渡与天空交叉淡化。
+
+Journal Spread Carousel — @kedhareswer / 21st.dev
+来源：https://21st.dev/@kedhareswer/components/journal-spread-carousel
+组件与内嵌手写字体来自用户提供的集成源码；字体拆分保存为 src/assets/fonts/journal-hand.woff2。
+保留双页折叠、景深、阴影与拖动翻页，接入项目本地图片、主题、逐图备注、缩略图列表与键盘操作。

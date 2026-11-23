@@ -1,6 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Pin } from 'lucide-react';
 import { Editor } from '../core/editor';
-import { newDocument, type CanvasObject, type ProjectDocument } from '../core/document';
+import { CANVAS_TEXT_WIDTH, canvasTextFromMarkdown, canvasTextPlainText, emptyCanvasText } from '../core/canvasText';
+import { fitCanvasText } from './canvas/canvasTextLayout';
+import { canvasShortcut, withDefaultStyle } from './canvas/canvasCommands';
+import { CANVAS_CLIPBOARD_MIME, copyCanvasSelection, pasteCanvasSelection } from '../core/canvasClipboard';
+import { PROJECT_SCHEMA_VERSION, newDocument, objectAssetIds, type CanvasObject, type ProjectDocument } from '../core/document';
 import { noteAssetIds } from '../core/note';
 import { MediaControls } from './media/MediaControls';
 import { Autosave } from '../core/autosave';
@@ -34,6 +39,7 @@ import { shapeGroups } from '../core/shapeGeometry';
 import { useSplashStore } from './home/splashStore';
 // main.tsx 在挂载前确认 preload 已就绪；渲染端只使用桌面 IPC。
 const api = window.workbench!;
+const createCanvasEditor = (document: ProjectDocument) => new Editor(document, fitCanvasText, withDefaultStyle);
 function useEditor(editor: Editor): ProjectDocument { return useSyncExternalStore(editor.subscribe, () => editor.document); }
 
 export function App() {
@@ -74,13 +80,17 @@ export function App() {
   const [retryProjectPath, setRetryProjectPath] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
   const [recoveredProject, setRecoveredProject] = useState(false);
-  const [editor, setEditor] = useState(() => new Editor(newDocument('未命名项目')));
+  const [editor, setEditor] = useState(() => createCanvasEditor(newDocument('未命名项目')));
   const document = useEditor(editor);
   // 在首帧记住磁盘修订号，避免首次操作早于 passive effect 时被误判为已经保存。
   const loadedEditor = useRef({ editor, revision: editor.document.revision });
   if (loadedEditor.current.editor !== editor) loadedEditor.current = { editor, revision: editor.document.revision };
   const tool = useInteractionStore(state => state.tool);
   const setTool = useInteractionStore(state => state.setTool);
+  const toolPersistent = useInteractionStore(state => state.toolPersistent);
+  const textClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelTextClick = () => { if (textClickTimer.current) clearTimeout(textClickTimer.current); textClickTimer.current = null; };
+  const chooseTool = (next: Tool, persistent = false) => { cancelTextClick(); setTool(next, persistent); };
   const arrowRouting = useInteractionStore(state => state.arrowRouting);
   const setArrowRouting = useInteractionStore(state => state.setArrowRouting);
   const selected = useInteractionStore(state => state.selected);
@@ -91,6 +101,7 @@ export function App() {
   const [saveState, setSaveState] = useState('已保存');
   const [themeOpen, setThemeOpen] = useState(false);
   const [inspectorRequested, setInspectorRequested] = useState(0);
+  const [inspectorTab, setInspectorTab] = useState('样式');
   const [shapeSearch, setShapeSearch] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [noteId, setNoteId] = useState<string | null>(null);
@@ -98,6 +109,7 @@ export function App() {
   const [openNoteIds, setOpenNoteIds] = useState<string[]>([]);
   // 工作台模式由 App 显式持有，不再用 noteId !== null 隐式判断；模式不写入项目数据。
   const [mode, setMode] = useState<WorkspaceMode>('canvas');
+  useEffect(() => cancelTextClick, [editor, mode, folder]);
   const playbackMediaId = usePlaybackStore(state => state.playback?.mediaId);
   const setPlayback = usePlaybackStore(state => state.setPlayback);
   const trimMode = useInteractionStore(state => state.trimMode);
@@ -116,7 +128,14 @@ export function App() {
   const [importing, setImporting] = useState(false);
   const [viewport, setViewport] = useState({ width: innerWidth - 300, height: innerHeight - 60 });
   const autosave = useRef<Autosave | null>(null);
-  const copiedIds = useRef<string[]>([]);
+  // 首页和打开失败时也要响应关闭请求；没有活动编辑器就没有待保存修改。
+  useEffect(() => api.onFlushRequest(async () => {
+    const focused = globalThis.document.activeElement;
+    if (focused instanceof HTMLElement) focused.blur();
+    await Promise.resolve();
+    try { await autosave.current?.flush(); return true; } catch { return false; }
+  }), []);
+  const lastCanvasPointer = useRef<{ x: number; y: number } | null>(null);
   const spacePanUsed = useRef(false);
   const spacePressed = useRef(false);
   useEffect(() => { void refreshProjects().catch(error => setHomeError(`${t('读取项目失败', 'Could not load projects')}：${String(error)}`)); }, []);
@@ -139,22 +158,23 @@ export function App() {
     const unsubscribe = editor.subscribe(() => scheduler.schedule(editor.document));
     // 覆盖订阅建立前的修改；恢复快照本身也需要落回主文件。
     scheduler.schedule(editor.document);
-    const removeFlushListener = api.onFlushRequest(async () => {
-      try { await scheduler.flush(); return true; } catch { return false; }
-    });
     const removeRestartListener = api.onBackendRestart(() => { void scheduler.flush().catch(() => undefined); });
-    return () => { unsubscribe(); removeFlushListener(); removeRestartListener(); scheduler.dispose(); if (autosave.current === scheduler) autosave.current = null; };
+    return () => { unsubscribe(); removeRestartListener(); scheduler.dispose(); if (autosave.current === scheduler) autosave.current = null; };
   }, [editor, folder, recoveredProject]);
   const selectedObjects = document.objects.filter(item => selected.includes(item.id));
   const selectedConnections = useInteractionStore(state => state.selectedConnections);
   const selectedConnectionObjects = document.connections.filter(item => selectedConnections.includes(item.id));
   const referencedIds = new Set([
-    ...document.objects.flatMap(object => 'assetId' in object && object.assetId ? [object.assetId] : []),
+    ...document.objects.flatMap(objectAssetIds),
     ...document.notes.flatMap(note => noteAssetIds(note))
   ]);
   const processingAssetIds = new Set(document.objects.flatMap(object => object.kind === 'media' && analysis[object.id]?.processing ? [object.assetId] : []));
   const failedAssetIds = new Set(document.objects.flatMap(object => object.kind === 'media' && analysis[object.id]?.error ? [object.assetId] : []));
   useEffect(() => { setTrimMode(false); }, [playbackMediaId]);
+  async function checkDesktopVersion() {
+    const settings = await api.getSettings();
+    if (settings.documentSchemaVersion !== PROJECT_SCHEMA_VERSION) throw Error(t('桌面程序已更新，请关闭当前窗口并重新运行 npm.cmd run dev，再打开项目。', 'The desktop runtime changed. Close this window and restart npm run dev before opening the project.'));
+  }
   async function createProject() {
     if (creatingLock.current) return;
     const name = projectName.trim();
@@ -166,31 +186,34 @@ export function App() {
         await refreshProjects(); setRenamingFolder(null); setProjectName('');
         return;
       }
+      await checkDesktopVersion();
       const created = await api.createProject(name);
-      const next = new Editor(newDocument(name));
+      const next = createCanvasEditor(newDocument(name));
       await api.saveProject(next.document);
       await refreshProjects();
       resetInteraction(); setPlayback(null); setRecoveredProject(false); setFolder(created); setEditor(next); dismissSplash();
       setCreating(false); setHomeMenu(false); setHomeError(''); setProjectName('');
-    } catch (error) { setHomeError(`${t('新建项目失败', 'Could not create project')}：${String(error)}`); }
+    } catch (error) { await api.leaveProject().catch(() => undefined); setHomeError(`${t('新建项目失败', 'Could not create project')}：${String(error)}`); }
     finally { creatingLock.current = false; setCreatingPending(false); }
   }
   async function openProject(path: string) {
     try {
       setHomeError(''); setRetryProjectPath(null);
+      await checkDesktopVersion();
       const loaded = await api.openProject(path);
-      resetInteraction(); setPlayback(null); setRecoveredProject(!!loaded.recovered); setEditor(new Editor(loaded)); setFolder(path); dismissSplash();
+      resetInteraction(); setPlayback(null); setRecoveredProject(!!loaded.recovered); setEditor(createCanvasEditor(loaded)); setFolder(path); dismissSplash();
       setSaveState(loaded.recovered ? '已载入恢复快照，请保存' : '已保存');
-    } catch (error) { setHomeError(`${t('打开项目失败', 'Could not open project')}：${String(error)}`); setRetryProjectPath(path); }
+    } catch (error) { await api.leaveProject().catch(() => undefined); setHomeError(`${t('打开项目失败', 'Could not open project')}：${String(error)}`); setRetryProjectPath(path); }
   }
   async function pickProjectFolder() {
     setHomeMenu(false);
     try {
+      await checkDesktopVersion();
       const selected = await api.pickProjectFolder();
       if (!selected) return;
-      resetInteraction(); setPlayback(null); setRecoveredProject(!!selected.document.recovered); setEditor(new Editor(selected.document)); setFolder(selected.folder); dismissSplash();
+      resetInteraction(); setPlayback(null); setRecoveredProject(!!selected.document.recovered); setEditor(createCanvasEditor(selected.document)); setFolder(selected.folder); dismissSplash();
       setSaveState(selected.document.recovered ? '已载入恢复快照，请保存' : '已保存');
-    } catch (error) { alert(`${t('打开项目文件夹失败', 'Could not open project folder')}：${String(error)}`); }
+    } catch (error) { await api.leaveProject().catch(() => undefined); alert(`${t('打开项目文件夹失败', 'Could not open project folder')}：${String(error)}`); }
   }
   async function importAssets() {
     try {
@@ -227,6 +250,9 @@ export function App() {
     } catch (error) { alert(`${t('重新关联失败', 'Could not relink asset')}：${String(error)}`); }
   }
   async function makeObject(kind: Tool | 'media' | 'image', asset: ProjectDocument['assets'][number] | undefined, position?: { x: number; y: number }): Promise<CanvasObject> {
+    return withDefaultStyle(await makeBaseObject(kind, asset, position));
+  }
+  async function makeBaseObject(kind: Tool | 'media' | 'image', asset: ProjectDocument['assets'][number] | undefined, position?: { x: number; y: number }): Promise<CanvasObject> {
     const camera = editor.document.camera;
     const common = { id: crypto.randomUUID(), x: position?.x ?? (100 - camera.x) / camera.scale, y: position?.y ?? (100 - camera.y) / camera.scale, width: 220, height: 90, groupId: null };
     if (kind === 'image' && asset) {
@@ -238,8 +264,8 @@ export function App() {
       const mediaCount = editor.document.objects.filter(item => item.kind === 'media').length;
       return { ...common, kind, assetId: asset.id, inUs: 0, outUs: asset.durationUs || 60_000_000, pixelsPerSecond: 30, color: autoTrackColor(trackPalette, mediaCount), autoColor: true };
     }
-    if (kind === 'text') return { ...common, kind, text: asset?.content ?? t('双击编辑文字', 'Double click to edit'), fontSize: 18, color: ink, align: 'left', ...(asset ? { assetId: asset.id } : {}) };
-    return { ...common, kind: shapeKinds.includes(kind as typeof shapeKinds[number]) ? kind as typeof shapeKinds[number] : 'rectangle', fill: 'transparent', stroke: accent, text: '', fontSize: 18, color: ink, align: 'center', style: { fillEnabled: false, fill: 'transparent', gradient: false, gradientColor: accent, gradientDirection: 'vertical', strokeEnabled: true, stroke: accent, strokeWidth: 1.5, dash: 'solid', perimeter: 0, opacity: 1, fontFamily: 'Microsoft YaHei', bold: false, italic: false, underline: false, verticalAlign: 'middle' } };
+    if (kind === 'text') return { ...common, kind, width: CANVAS_TEXT_WIDTH, height: 42, text: asset ? canvasTextFromMarkdown(asset.content ?? '') : emptyCanvasText(), fontSize: 18, color: ink, align: 'left', ...(asset ? { assetId: asset.id } : {}) };
+    return { ...common, kind: shapeKinds.includes(kind as typeof shapeKinds[number]) ? kind as typeof shapeKinds[number] : 'rectangle', fill: 'transparent', stroke: accent, text: emptyCanvasText(), fontSize: 18, color: ink, align: 'center', style: { fillEnabled: false, fill: 'transparent', gradient: false, gradientColor: accent, gradientDirection: 'vertical', strokeEnabled: true, stroke: accent, strokeWidth: 1.5, dash: 'solid', perimeter: 0, opacity: 1, fontFamily: 'Microsoft YaHei', bold: false, italic: false, underline: false, verticalAlign: 'middle' } };
   }
   async function addObject(kind: Tool | 'media' | 'image' | 'note', assetId?: string, position?: { x: number; y: number }) {
     if (suppressClick.current && !position) return;
@@ -261,9 +287,10 @@ export function App() {
   };
   function beginPlacement(event: React.PointerEvent, kind: Tool | 'media' | 'image' | 'note', assetId?: string) {
     if (event.button !== 0) return;
+    cancelTextClick();
     suppressClick.current = false; cancelledDrop.current = false;
     const ready: Promise<CanvasObject> = kind === 'note'
-      ? Promise.resolve({ id: crypto.randomUUID(), kind: 'note', noteId: assetId!, x: 0, y: 0, width: 180, height: 120, groupId: null })
+      ? Promise.resolve(withDefaultStyle({ id: crypto.randomUUID(), kind: 'note', noteId: assetId!, x: 0, y: 0, width: 180, height: 120, groupId: null }))
       : makeObject(kind, editor.document.assets.find(asset => asset.id === assetId));
     const item = { kind, assetId, x: event.clientX, y: event.clientY, moved: false, ready, object: undefined as CanvasObject | undefined };
     placement.current = item;
@@ -330,20 +357,21 @@ export function App() {
     if (!folder || mode !== 'canvas' || creating || themeOpen || event.isComposing || event.key === 'Process') return;
     const playback = usePlaybackStore.getState().playback;
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+    if (event.defaultPrevented || (event.target instanceof Element && event.target.closest('[data-edit-menu],dialog'))) return;
+    if (event.key === 'Escape') { chooseTool('select'); return; }
+    if (canvasShortcut(event, editor, selected)) return;
     if (event.key === 'Delete' || event.key === 'Backspace') { if (selectedConnections.length) { editor.deleteConnections(selectedConnections); setSelectedConnections([]); } else if (selected.length) { editor.deleteObjects(selected); setSelected([]); } }
-    if (event.ctrlKey && event.key.toLowerCase() === 'z') { event.preventDefault(); editor.undo(); }
+    if (event.ctrlKey && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) editor.redo(); else editor.undo(); }
     if (event.ctrlKey && event.key.toLowerCase() === 'y') { event.preventDefault(); editor.redo(); }
     if (event.ctrlKey && event.key.toLowerCase() === 'a') { event.preventDefault(); setSelected(document.objects.map(item => item.id)); }
-    if (event.ctrlKey && event.key.toLowerCase() === 'c') { event.preventDefault(); copiedIds.current = selected; }
-    if (event.ctrlKey && event.key.toLowerCase() === 'v') { event.preventDefault(); if (copiedIds.current.length) setSelected(editor.duplicateObjects(copiedIds.current)); }
-    if (event.ctrlKey && event.key.toLowerCase() === 'd') { event.preventDefault(); if (selected.length) setSelected(editor.duplicateObjects(selected)); }
+    if (event.ctrlKey && event.key.toLowerCase() === 'd') { event.preventDefault(); if (selected.length) setSelected(editor.duplicateObjects(selected)); else if (selectedConnections.length) setSelectedConnections(pasteCanvasSelection(editor, copyCanvasSelection(editor, [], selectedConnections)).connections); }
     if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); void autosave.current?.flush().catch(() => undefined); }
     if (event.key.toLowerCase() === 'm' && !event.ctrlKey && !event.metaKey && !event.repeat && playback && selected.length === 1 && selected[0] === playback.mediaId) { event.preventDefault(); editor.addMarker(playback.mediaId, playback.timeUs); useInteractionStore.getState().setSelectedMarker(null); }
     if (event.code === 'Space') { event.preventDefault(); if (!event.repeat) spacePanUsed.current = false; spacePressed.current = true; }
   }
   function keyUp(event: KeyboardEvent) {
     if (!folder || mode !== 'canvas' || creating || themeOpen || event.isComposing) return;
-    if (event.code !== 'Space' || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+    if (event.code !== 'Space' || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
     event.preventDefault();
     spacePressed.current = false;
     const playback = usePlaybackStore.getState().playback;
@@ -355,6 +383,66 @@ export function App() {
     addEventListener('keydown', keyDown); addEventListener('keyup', keyUp); addEventListener('mousedown', mouseDown);
     return () => { removeEventListener('keydown', keyDown); removeEventListener('keyup', keyUp); removeEventListener('mousedown', mouseDown); };
   });
+  useEffect(() => {
+    const inField = (target: EventTarget | null) => target instanceof HTMLElement && (!!target.closest('input,textarea,select,[contenteditable="true"]'));
+    const trackPointer = (event: PointerEvent) => { lastCanvasPointer.current = { x: event.clientX, y: event.clientY }; };
+    const copy = (event: ClipboardEvent) => {
+      if (!folder || mode !== 'canvas' || inField(event.target) || (!selected.length && !selectedConnections.length) || !event.clipboardData) return;
+      event.preventDefault();
+      event.clipboardData.setData(CANVAS_CLIPBOARD_MIME, JSON.stringify(copyCanvasSelection(editor, selected, selectedConnections)));
+      event.clipboardData.setData('text/plain', editor.document.objects.filter(item => selected.includes(item.id)).map(item => 'text' in item ? canvasTextPlainText(item.text) : '').filter(Boolean).join('\n'));
+      if (event.type === 'cut') { if (selectedConnections.length) editor.deleteConnections(selectedConnections); else editor.deleteObjects(selected); setSelected([]); }
+    };
+    const pastePosition = () => {
+      const rect = canvasRef.current!.getBoundingClientRect(), pointer = lastCanvasPointer.current;
+      const camera = editor.document.camera;
+      const inside = pointer && pointer.x >= rect.left && pointer.x <= rect.right && pointer.y >= rect.top && pointer.y <= rect.bottom;
+      return {
+        x: inside ? (pointer.x - rect.left - camera.x) / camera.scale : (rect.width / 2 - camera.x) / camera.scale - CANVAS_TEXT_WIDTH / 2,
+        y: inside ? (pointer.y - rect.top - camera.y) / camera.scale : (rect.height / 2 - camera.y) / camera.scale
+      };
+    };
+    const pasteImages = async (files: File[], position: { x: number; y: number }) => {
+      setImporting(true);
+      try {
+        const result = await api.importDroppedFiles(files);
+        if (activeEditor.current !== editor) return;
+        const objects: CanvasObject[] = [];
+        for (const [index, asset] of result.assets.entries()) {
+          if (asset.kind !== 'image') continue;
+          try { objects.push(await makeObject('image', asset, { x: position.x + index * 24, y: position.y + index * 24 })); }
+          catch (error) { result.errors.push({ name: asset.name, message: String(error) }); }
+        }
+        if (activeEditor.current !== editor) return;
+        // 素材与画布对象一次写入，粘贴对应一次撤销；原始图片文件保留在项目 assets 内。
+        if (result.assets.length) editor.execute(draft => { draft.assets.push(...result.assets); draft.objects.push(...objects); });
+        if (objects.length) { setSelected(objects.map(object => object.id)); setTool('select'); }
+        if (result.errors.length) alert(result.errors.map(item => item.name + '：' + item.message).join('\n'));
+      } catch (error) { alert(t('粘贴图片失败', 'Could not paste image') + '：' + String(error)); }
+      finally { setImporting(false); }
+    };
+    const paste = (event: ClipboardEvent) => {
+      if (!folder || mode !== 'canvas' || creating || themeOpen || event.defaultPrevented || inField(event.target) || !event.clipboardData) return;
+      const internal = event.clipboardData.getData(CANVAS_CLIPBOARD_MIME);
+      if (internal) {
+        try {
+          const copied = JSON.parse(internal) as ProjectDocument;
+          if (copied.id === editor.document.id) {
+            event.preventDefault(); const pasted = pasteCanvasSelection(editor, copied); if (pasted.objects.length) setSelected(pasted.objects); else setSelectedConnections(pasted.connections); return;
+          }
+        } catch { /* 外部剪贴板自定义数据无效时继续读取普通文字。 */ }
+      }
+      const images = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'));
+      if (images.length) { event.preventDefault(); void pasteImages(images, pastePosition()); return; }
+      const source = event.clipboardData.getData('text/plain');
+      if (!source.trim()) return;
+      event.preventDefault();
+      const object: CanvasObject = { id: crypto.randomUUID(), kind: 'text', ...pastePosition(), width: CANVAS_TEXT_WIDTH, height: 42, groupId: null, text: canvasTextFromMarkdown(source), fontSize: 18, color: ink, align: 'left' };
+      editor.addObject(object); setSelected([object.id]); setTool('select');
+    };
+    addEventListener('pointermove', trackPointer); addEventListener('copy', copy); addEventListener('cut', copy); addEventListener('paste', paste);
+    return () => { removeEventListener('pointermove', trackPointer); removeEventListener('copy', copy); removeEventListener('cut', copy); removeEventListener('paste', paste); };
+  }, [editor, folder, mode, selected, selectedConnections, creating, themeOpen, ink]);
   const settings = <SettingsPanel onRootChange={refreshProjects} />;
   const themeButton = <button type="button" className="nav-icon-button" aria-label={t('主题', 'Themes')} title={t('主题', 'Themes')} onClick={() => setThemeOpen(true)}><WorkbenchIcon name="palette" size={16} /><span>{t('主题', 'Themes')}</span></button>;
   const themeToggle = <ThemeToggle />;
@@ -362,7 +450,7 @@ export function App() {
   const selectedMedia = selectedObjects.length === 1 && selectedObjects[0].kind === 'media' ? selectedObjects[0] : null;
   const mergedInspector = selectedConnectionObjects.length
     ? <ConnectionInspector key={selectedConnections.join(',')} editor={editor} connections={selectedConnectionObjects}/>
-    : <>{selectedMedia && <MediaControls document={document} editor={editor} trimMode={trimMode} onTrimMode={setTrimMode}/>}<ObjectInspector key={selected.join(',')} editor={editor} objects={selectedObjects} assets={document.assets}/></>;
+    : <>{selectedMedia && <MediaControls document={document} editor={editor} trimMode={trimMode} onTrimMode={setTrimMode}/>}<ObjectInspector key={selected.join(',')} editor={editor} objects={selectedObjects} assets={document.assets} requestedTab={inspectorTab} request={inspectorRequested}/></>;
   const currentNote = noteId ? document.notes.find(item => item.id === noteId) : null;
   function openNote(id: string, reading = false) { setOpenNoteIds(ids => ids.includes(id) ? ids : [...ids, id]); setReadingNoteId(reading ? id : null); setNoteId(id); setMode('notes'); }
   function closeNote(id: string) {
@@ -408,7 +496,7 @@ export function App() {
     {themeModal}
   </main>;
   return <div className="app" onContextMenu={event => event.preventDefault()} onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}><header className="workspace-header">
-    <nav className="workspace-nav-left" aria-label={t('工作台导航', 'Workbench navigation')}><button type="button" onClick={async () => { try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); await refreshProjects(); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button><WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /></nav>
+    <nav className="workspace-nav-left" aria-label={t('工作台导航', 'Workbench navigation')}><button type="button" onClick={async () => { cancelTextClick(); try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); await refreshProjects(); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button><WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /></nav>
     <div className="workspace-header-center"><strong>{document.name}</strong><span>{saveState === '已保存' ? t('已保存', 'Saved') : saveState === '未保存' ? t('未保存', 'Unsaved') : saveState === '保存失败' ? t('保存失败', 'Save failed') : t('已载入恢复快照，请保存', 'Recovery loaded; please save')}</span></div>
     <nav className="workspace-nav-actions" aria-label={t('编辑操作', 'Editing actions')}>
       {saveState === '保存失败' && <button type="button" onClick={() => { void autosave.current?.flush().catch(() => undefined); }}>{t('重试保存', 'Retry save')}</button>}
@@ -417,16 +505,30 @@ export function App() {
       {themeToggle}{themeButton}{settings}
     </nav>
   </header>{mode === 'notes' && currentNote ? <NotesWorkspace notes={document.notes} activeId={currentNote.id} openIds={openNoteIds} onOpen={id => openNote(id)} onClose={closeNote} onCreate={createNote} onDuplicate={id => openNote(editor.duplicateNote(id))} onDelete={id => { editor.deleteNote(id); closeNote(id); }}>
-    <Suspense fallback={<div className="note-paper">{t('正在打开笔记…', 'Opening note…')}</div>}><NoteEditor key={currentNote.id} note={currentNote} assets={document.assets} notes={document.notes} onOpenNote={openNote} initialReadMode={readingNoteId === currentNote.id} onChange={change => editor.updateNote(currentNote.id, change)} onImportImages={importNoteImages} /></Suspense>
+    <Suspense fallback={<div className="note-paper">{t('正在打开笔记…', 'Opening note…')}</div>}><NoteEditor key={currentNote.id} note={currentNote} assets={document.assets} notes={document.notes} onOpenNote={openNote} initialReadMode={readingNoteId === currentNote.id} onChange={change => editor.updateNote(currentNote.id, change)} onImportImages={importNoteImages} onMoveSelection={(targetId, remaining, selected) => editor.moveNoteSelection(currentNote.id, targetId, remaining, selected)} /></Suspense>
   </NotesWorkspace> : <div className="workspace"><section ref={canvasRef} className="canvas" data-placement-preview={placementGhost?.kind} data-selected={selected.join(',')} style={{ backgroundSize: `${24 * document.camera.scale}px ${24 * document.camera.scale}px`, backgroundPosition: `${document.camera.x}px ${document.camera.y}px` }} onDragEnter={() => { if (!externalDrag.current) cancelledDrop.current = false; externalDrag.current = true; }} onDragOver={event => { event.preventDefault(); if (event.buttons & 2) { cancelledDrop.current = true; setDropPreview(null); } event.dataTransfer.dropEffect = cancelledDrop.current ? 'none' : 'copy'; if (!cancelledDrop.current) setDropPreview({ x: event.clientX, y: event.clientY, label: '松开放入素材' }); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDropPreview(null); externalDrag.current = false; } }} onDrop={dropItem}>
-    <CanvasStage editor={editor} document={document} viewport={viewport} tool={tool} arrowRouting={arrowRouting} selected={selected} trimMode={trimMode} analysis={analysis} onSelect={setSelected} onTool={setTool} onSpacePan={() => { spacePanUsed.current = true; }} onOpenNote={id => openNote(id, true)} placementGhost={placementGhost} onOpenInspector={() => setInspectorRequested(value => value + 1)}/>
+    <CanvasStage editor={editor} document={document} viewport={viewport} tool={tool} arrowRouting={arrowRouting} selected={selected} trimMode={trimMode} analysis={analysis} onSelect={setSelected} onTool={setTool} onSpacePan={() => { spacePanUsed.current = true; }} onOpenNote={id => openNote(id, true)} placementGhost={placementGhost} onOpenInspector={(tab = '样式') => { setInspectorTab(tab); setInspectorRequested(value => value + 1); }}/>
     {importing && <div className="import-status" role="status">正在导入素材…</div>}
   </section><WorkspaceDock tools={<><div className="canvas-basic-tools">
-    <button title={t('选择', 'Select')} aria-label={t('选择', 'Select')} aria-pressed={tool === 'select'} onClick={() => setTool('select')}><WorkbenchIcon name="select" /></button>
-    <button title={t('文字', 'Text')} aria-label={t('文字', 'Text')} onPointerDown={event => beginPlacement(event, 'text')} onClick={() => void addObject('text')}><WorkbenchIcon name="text" /></button>
-    <button title={t('箭头', 'Arrow')} aria-label={t('箭头', 'Arrow')} aria-pressed={tool === 'arrow'} onClick={() => setTool('arrow')}><WorkbenchIcon name="arrow" /></button>
-    <button title={t('画笔', 'Brush')} aria-label={t('画笔', 'Brush')} aria-pressed={tool === 'brush'} onClick={() => setTool('brush')}><WorkbenchIcon name="brush" /></button>
-  </div>{tool === 'arrow' && <label className="arrow-routing">{t('路径', 'Path')}<select aria-label={t('箭头路径', 'Arrow path')} value={arrowRouting} onChange={event => setArrowRouting(event.target.value as 'straight' | 'elbow')}><option value="straight">{t('直线', 'Straight')}</option><option value="elbow">{t('折线', 'Elbow')}</option></select></label>}<input className="shape-search" aria-label={t('搜索图形', 'Search shapes')} placeholder={t('搜索图形', 'Search shapes')} value={shapeSearch} onChange={event => setShapeSearch(event.target.value)} />
+    <button title={t('选择', 'Select')} aria-label={t('选择', 'Select')} aria-pressed={tool === 'select'} onClick={() => chooseTool('select')}><WorkbenchIcon name="select" /></button>
+    {(['text', 'arrow', 'brush'] as const).map(kind => {
+      const label = kind === 'text' ? t('文字', 'Text') : kind === 'arrow' ? t('箭头', 'Arrow') : t('画笔', 'Brush');
+      const persistent = tool === kind && toolPersistent;
+      return <button key={kind} title={`${label} · ${t('双击持续使用，Esc 退出', 'Double-click to keep using; Esc to exit')}`} aria-label={label} aria-pressed={tool === kind} aria-describedby={persistent ? 'persistent-tool-hint' : undefined} data-persistent={persistent || undefined}
+        onPointerDown={kind === 'text' ? event => beginPlacement(event, 'text') : undefined}
+        onClick={event => {
+          if (kind !== 'text') { chooseTool(kind); return; }
+          if (suppressClick.current || event.detail > 1) return;
+          cancelTextClick();
+          // 双击的第二次点击会取消待创建任务，防止进入持续工具时额外生成两个文本框。
+          if (event.detail === 0) void addObject('text');
+          else textClickTimer.current = setTimeout(() => { textClickTimer.current = null; void addObject('text'); }, 500);
+        }} onDoubleClick={() => chooseTool(kind, true)}
+        onKeyDown={event => { if (event.shiftKey && event.key === 'Enter') { event.preventDefault(); chooseTool(kind, true); } }}>
+        <WorkbenchIcon name={kind} />{persistent && <Pin className="tool-persistent-mark" size={11} aria-hidden="true" />}
+      </button>;
+    })}
+  </div>{toolPersistent && <p id="persistent-tool-hint" className="tool-persistent-hint" role="status">{t('持续使用 · Esc 退出', 'Keep using · Esc to exit')}</p>}{tool === 'arrow' && <label className="arrow-routing">{t('路径', 'Path')}<select aria-label={t('箭头路径', 'Arrow path')} value={arrowRouting} onChange={event => setArrowRouting(event.target.value as 'straight' | 'elbow')}><option value="straight">{t('直线', 'Straight')}</option><option value="elbow">{t('折线', 'Elbow')}</option></select></label>}<input className="shape-search" aria-label={t('搜索图形', 'Search shapes')} placeholder={t('搜索图形', 'Search shapes')} value={shapeSearch} onChange={event => setShapeSearch(event.target.value)} />
     {Object.entries(shapeGroups).map(([group, kinds]) => {
       const matches = kinds.filter(kind => !shapeSearch || shapeLabels[kind].toLocaleLowerCase().includes(shapeSearch.toLocaleLowerCase()) || kind.toLocaleLowerCase().includes(shapeSearch.toLocaleLowerCase()));
       return matches.length ? <details className="shape-group" key={group} open={!!shapeSearch || !collapsedGroups.includes(group)}>

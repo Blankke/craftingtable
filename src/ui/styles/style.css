@@ -94,7 +94,6 @@ aside{width:300px;border-left:1px solid var(--wb-border);display:flex;flex-direc
 .marker-row button{padding:5px 7px}
 .marker-note{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
 /* 画布文字编辑 */
-.canvas-text-editor{position:absolute;z-index:3;padding:4px;border:2px solid var(--wb-primary);border-radius:4px;background:var(--wb-card);resize:both;font-family:inherit;line-height:1.4;outline:none;color:var(--wb-foreground)}
 .canvas-text-done{position:absolute;z-index:4;background:var(--wb-primary);color:var(--wb-primary-foreground);border-color:var(--wb-primary)}
 .text-toolbar{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--wb-border)}
 .text-toolbar label{display:flex;align-items:center;justify-content:space-between;font-size:13px}

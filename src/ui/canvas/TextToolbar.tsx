@@ -1,9 +1,8 @@
 import type { Editor } from '../../core/editor';
-import type { CanvasObject } from '../../core/document';
 import { ColorTrigger } from '../theme/ColorEditor';
 import { useLanguage } from '../shared/language';
 
-type TextObject = Extract<CanvasObject, { text?: string }>;
+import type { TextObject } from './canvasTextLayout';
 export function TextToolbar({ editor, object }: { editor: Editor; object: TextObject }) {
   const { t } = useLanguage();
   const update = (change: (target: TextObject) => void) => {
