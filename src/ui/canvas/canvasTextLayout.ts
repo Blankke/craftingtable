@@ -1,5 +1,5 @@
 import { BoundedCache } from '../../core/boundedCache';
-// 用法：canvasTextLayout(object) 返回实际排版高度；fitCanvasText 作为编辑器的几何归一化入口。
+// 用法：canvasTextLayout(object) 返回横排或竖排的实际尺寸与偏移；fitCanvasText 作为编辑器的几何归一化入口。
 // 文字以浏览器原生排版测量并绘入 Konva，编辑态复用相同 HTML/CSS，保留画布对象的叠放顺序。
 import type { CSSProperties } from 'react';
 import type { CanvasObject } from '../../core/document';
@@ -12,9 +12,9 @@ export type TextObject = Extract<CanvasObject, { kind: 'text' | typeof import('.
 export const isTextObject = (object: CanvasObject): object is TextObject => object.kind === 'text' || 'fill' in object;
 export function canvasTextStyle(object: TextObject): CSSProperties {
   const style = styleOf(object);
-  return { fontFamily: style.fontFamily, fontSize: object.fontSize ?? 18, fontWeight: style.bold ? 'bold' : 'normal', fontStyle: style.italic ? 'italic' : 'normal', textDecoration: style.underline ? 'underline' : 'none', textAlign: object.align ?? 'center', color: object.color ?? '#172033' };
+  return { fontFamily: style.fontFamily, fontSize: object.fontSize ?? 18, fontWeight: style.bold ? 'bold' : 'normal', fontStyle: style.italic ? 'italic' : 'normal', textDecoration: style.underline ? 'underline' : 'none', textAlign: object.align ?? 'center', color: object.color ?? '#172033', writingMode: object.writingMode ?? 'horizontal-tb', textOrientation: 'mixed' };
 }
-const heightCache = new BoundedCache<string, number>(300, 2 * 1024 * 1024);
+const extentCache = new BoundedCache<string, number>(300, 2 * 1024 * 1024);
 // 同一不可变正文在移动、播放和选区更新中复用 HTML；WeakMap 随文档释放。
 const textCache = new WeakMap<object, { html: string; heights: BoundedCache<string, number> }>();
 const emptyTextKey = {};
@@ -26,30 +26,39 @@ function textEntry(object: TextObject) {
 }
 export function canvasTextLayout(object: TextObject) {
   const style = canvasTextStyle(object), entry = textEntry(object), html = entry.html;
-  const styleText = `font-family:${style.fontFamily};font-size:${style.fontSize}px;font-weight:${style.fontWeight};font-style:${style.fontStyle};text-decoration:${style.textDecoration};text-align:${style.textAlign};color:${style.color}`;
-  const metricKey = JSON.stringify([object.width, styleText]);
-  let height = entry.heights.get(metricKey);
-  const key = height === undefined ? JSON.stringify([object.width, styleText, html]) : '';
-  if (height === undefined) height = heightCache.get(key);
-  if (height === undefined) {
+  const vertical = object.writingMode === 'vertical-rl';
+  const styleText = `font-family:${style.fontFamily};font-size:${style.fontSize}px;font-weight:${style.fontWeight};font-style:${style.fontStyle};text-decoration:${style.textDecoration};text-align:${style.textAlign};color:${style.color};writing-mode:${style.writingMode};text-orientation:mixed`;
+  // 横排限制宽度并增高；竖排限制高度、从右向左增加列，两者共用同一测量缓存。
+  const constraint = vertical ? object.height : object.width;
+  const metricKey = JSON.stringify([constraint, styleText]);
+  let extent = entry.heights.get(metricKey);
+  const key = extent === undefined ? JSON.stringify([constraint, styleText, html]) : '';
+  if (extent === undefined) extent = extentCache.get(key);
+  if (extent === undefined) {
     const host = document.createElement('div');
-    host.style.cssText = `position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:${object.width}px`;
-    host.innerHTML = `<div class="canvas-rich-text" style="${escapeTextHtml(styleText)}">${html}</div>`;
+    host.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none';
+    const size = vertical ? `height:${constraint}px;width:max-content` : `width:${constraint}px`;
+    host.innerHTML = `<div class="canvas-rich-text" style="${escapeTextHtml(styleText + ';' + size)}">${html}</div>`;
     document.body.append(host);
-    height = Math.ceil(host.firstElementChild!.getBoundingClientRect().height);
-    host.remove();
-    heightCache.set(key, height, key.length * 2);
+    const box = host.firstElementChild!.getBoundingClientRect();
+    extent = Math.ceil(vertical ? box.width : box.height);
+    host.remove(); extentCache.set(key, extent, key.length * 2);
   }
-  entry.heights.set(metricKey, height);
+  entry.heights.set(metricKey, extent);
+  const width = vertical ? extent : object.width, height = vertical ? object.height : extent;
   const alignment = styleOf(object).verticalAlign;
-  const y = alignment === 'top' ? 0 : alignment === 'bottom' ? object.height - height : (object.height - height) / 2;
-  return { height, y, html, styleText };
+  const x = !vertical ? 0 : alignment === 'top' ? object.width - width : alignment === 'bottom' ? 0 : (object.width - width) / 2;
+  const y = vertical ? 0 : alignment === 'top' ? 0 : alignment === 'bottom' ? object.height - height : (object.height - height) / 2;
+  return { width, height, x, y, html, styleText };
 }
 export function fitCanvasText(object: CanvasObject): void {
-  if (object.kind === 'text') object.height = Math.max(object.height, canvasTextLayout(object).height);
+  if (object.kind !== 'text') return;
+  const layout = canvasTextLayout(object);
+  if (object.writingMode === 'vertical-rl') object.width = Math.max(object.width, layout.width);
+  else object.height = Math.max(object.height, layout.height);
 }
 export function canvasTextImageSource(object: TextObject, ratio: number): string {
-  const { height, html, styleText } = canvasTextLayout(object);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(object.width * ratio)}" height="${Math.ceil(height * ratio)}" viewBox="0 0 ${object.width} ${height}"><style>${css}</style><foreignObject width="${object.width}" height="${height}"><div xmlns="http://www.w3.org/1999/xhtml" class="canvas-rich-text" style="${escapeTextHtml(styleText)}">${html}</div></foreignObject></svg>`;
+  const { width, height, html, styleText } = canvasTextLayout(object);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(width * ratio)}" height="${Math.ceil(height * ratio)}" viewBox="0 0 ${width} ${height}"><style>${css}</style><foreignObject width="${width}" height="${height}"><div xmlns="http://www.w3.org/1999/xhtml" class="canvas-rich-text" style="${escapeTextHtml(styleText)};width:${width}px;height:${height}px">${html}</div></foreignObject></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

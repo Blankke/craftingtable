@@ -56,7 +56,7 @@ describe('笔记模型与命令', () => {
     const document = newDocument('样式项目');
     document.notes.push(note);
     const parsed = documentSchema.parse(JSON.parse(JSON.stringify(document)));
-    expect(parsed.schemaVersion).toBe(4);
+    expect(parsed.schemaVersion).toBe(5);
     expect(parsed.notes[0].document.content[0].content![0].marks).toEqual([{ type: 'textStyle', attrs: { fontFamily: 'Georgia', fontSize: '24px' } }]);
     expect(noteText(parsed.notes[0])).toBe('带字体字号');
   });

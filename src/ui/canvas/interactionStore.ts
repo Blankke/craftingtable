@@ -13,6 +13,7 @@ type InteractionState = {
   setTool(tool: Tool, persistent?: boolean): void;
   finishTool(): void;
   setArrowRouting(routing: 'straight' | 'elbow'): void;
+  setSelection(objects: string[], connections: string[]): void;
   setSelected(ids: string[]): void;
   setSelectedConnections(ids: string[]): void;
   setTrimMode(value: boolean): void;
@@ -28,6 +29,7 @@ export const useInteractionStore = create<InteractionState>(set => ({
   // 仅创建完成后使用此入口；取消和切换工具走 setTool，单击画笔保留原有连续绘制行为。
   finishTool: () => set(state => state.toolPersistent || state.tool === 'brush' ? state : { tool: 'select', toolPersistent: false }),
   setArrowRouting: arrowRouting => set({ arrowRouting }),
+  setSelection: (selected, selectedConnections) => set({ selected, selectedConnections, selectedMarker: null }),
   setSelected: selected => set(state => ({ selected, selectedConnections: [], selectedMarker: selected.length === 1 && selected[0] === state.selected[0] ? state.selectedMarker : null })),
   setSelectedConnections: selectedConnections => set({ selectedConnections, selected: [], selectedMarker: null }),
   setSelectedMarker: selectedMarker => set({ selectedMarker }),

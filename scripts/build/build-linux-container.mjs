@@ -1,11 +1,13 @@
 // 使用范例：npm run dist:linux:docker。需要 Docker；产物复制到 release/，不影响本机 node_modules。
 // 容器只构建，不启动 Electron；桌面冒烟请在 Linux 主机执行 release/linux-unpacked/craftingtable --smoke。
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const image = 'craftingtable-linux-builder:0.1.0';
+// 构建镜像标签与应用版本同步，避免不同发布版本共用固定标签。
+const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+const image = `craftingtable-linux-builder:${version}`;
 const container = `craftingtable-artifacts-${process.pid}-${Date.now()}`;
 async function run(args) {
   await new Promise((resolve, reject) => {

@@ -98,7 +98,7 @@ export class Editor {
     this.redoStack.push(this.current); this.current = { ...prior, revision: this.current.revision + 1 }; this.emit();
   }
   redo(): void { const next = this.redoStack.pop(); if (!next) return; this.undoStack.push(this.current); this.current = { ...next, revision: this.current.revision + 1 }; this.emit(); }
-  deleteObjects(ids: string[]): void {
+  deleteObjects(ids: string[], connectionIds: string[] = []): void {
     this.execute(draft => {
       const selected = this.expandObjectIds(ids, draft);
       if (draft.objects.some(object => selected.has(object.id) && object.locked)) return;
@@ -106,7 +106,7 @@ export class Editor {
       const removedMarkers = new Set(draft.markers.filter(marker => removed.has(marker.mediaId)).map(marker => marker.id));
       draft.objects = draft.objects.filter(object => !removed.has(object.id));
       draft.markers = draft.markers.filter(marker => !removedMarkers.has(marker.id));
-      draft.connections = draft.connections.filter(connection => [connection.from, connection.to].every(anchor =>
+      draft.connections = draft.connections.filter(connection => !connectionIds.includes(connection.id) && [connection.from, connection.to].every(anchor =>
         anchor.kind === 'free' || (anchor.kind === 'object' && !removed.has(anchor.objectId)) || (anchor.kind === 'time' && !removedMarkers.has(anchor.markerId))));
       this.pruneEmptyGroups(draft);
     });

@@ -1,5 +1,5 @@
 /* 画布静态字形、尺寸测量和原位编辑共用排版；SVG 会内嵌同一份样式。 */
-.canvas-rich-text{box-sizing:border-box;width:100%;padding:8px;margin:0;outline:none;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;text-rendering:optimizeLegibility}
+.canvas-rich-text{box-sizing:border-box;inline-size:100%;padding:8px;margin:0;outline:none;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;text-rendering:optimizeLegibility}
 .canvas-rich-text *{box-sizing:border-box}
 .canvas-rich-text p{margin:0;min-height:1.4em}
 .canvas-rich-text h1,.canvas-rich-text h2,.canvas-rich-text h3,.canvas-rich-text h4,.canvas-rich-text h5,.canvas-rich-text h6{margin:.35em 0 .2em;font-weight:700;line-height:1.25}

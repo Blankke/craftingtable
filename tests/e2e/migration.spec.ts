@@ -24,7 +24,7 @@ test('历史项目打开后备份原件并升级为当前格式', async () => {
     await expect(page.getByRole('button', { name: '历史项目' })).toBeVisible();
     await page.getByRole('button', { name: '历史项目' }).click();
     await expect(page.locator('.canvas')).toBeVisible();
-    await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 4 });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 5 });
     const upgraded = JSON.parse(await readFile(path.join(folder, 'project.json'), 'utf8')) as { objects: { id: string }[] };
     expect(upgraded.objects).toEqual([{ id: source.objects[0].id, kind: 'rectangle', x: 24, y: 36, width: 180, height: 90, groupId: null, fill: '#ffffff', stroke: '#000000' }]);
     expect((await readdir(path.join(folder, 'recovery'))).some(name => name.startsWith('pre-migration-'))).toBe(true);
@@ -55,11 +55,11 @@ test('无笔记项目与恢复快照均可安全升级', async () => {
     const page = await application.firstWindow();
     await page.getByRole('button', { name: '无笔记项目' }).click();
     await expect(page.locator('.canvas')).toBeVisible();
-    await expect.poll(async () => JSON.parse(await readFile(path.join(firstFolder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 4 });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(firstFolder, 'project.json'), 'utf8')) as { schemaVersion: number }).toMatchObject({ schemaVersion: 5 });
     await page.locator('header button').first().click();
     await page.getByRole('button', { name: '恢复快照项目' }).click();
     await expect(page.locator('.canvas')).toBeVisible();
-    await expect.poll(async () => JSON.parse(await readFile(path.join(recoveryFolder, 'project.json'), 'utf8')) as { schemaVersion: number; objects: unknown[] }).toMatchObject({ schemaVersion: 4, objects: [expect.anything()] });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(recoveryFolder, 'project.json'), 'utf8')) as { schemaVersion: number; objects: unknown[] }).toMatchObject({ schemaVersion: 5, objects: [expect.anything()] });
     expect((await readdir(path.join(recoveryFolder, 'recovery'))).some(name => name.startsWith('pre-migration-'))).toBe(true);
   } finally {
     await application?.close().catch(() => undefined);

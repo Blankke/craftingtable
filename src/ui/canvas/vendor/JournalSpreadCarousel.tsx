@@ -154,8 +154,9 @@ const CSS =
   ".jsc-floor{position:absolute;left:50%;top:50%;width:calc(var(--jsc-w) * 1.55);height:calc(var(--jsc-h) * .62);transform:translate(-50%,calc(var(--jsc-h) * .2));" +
   "background:#20243a;opacity:.55;filter:blur(calc(var(--jsc-w) * .03));border-radius:calc(var(--jsc-w) * .04);pointer-events:none}" +
   ".jsc-view{position:absolute;inset:0;perspective:var(--jsc-perspective,1600px);perspective-origin:50% 46%}" +
-  ".jsc-scene{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:preserve-3d}" +
-  ".jsc-item{position:absolute;left:0;top:0;transform-style:preserve-3d;visibility:hidden}" +
+  ".jsc-scene{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:flat}" +
+  ".jsc-item{position:absolute;left:0;top:0;isolation:isolate;transform-style:flat;perspective-origin:0 0;visibility:hidden}" +
+  ".jsc-fold{position:absolute;inset:0;transform-style:preserve-3d}" +
   ".jsc-page{position:absolute;top:calc(var(--jsc-h) * -.5);width:calc(var(--jsc-w) * .5);height:var(--jsc-h);overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden;" +
   "background:transparent;box-shadow:none}" +
   // 只在书页中缝处重叠半像素；外侧边缘保持原宽度，避免漏出纸面底色。
@@ -360,7 +361,12 @@ export default function JournalSpreadCarousel({
       }
       el.style.visibility = "visible"
       el.style.opacity = String(q.opacity)
-      el.style.transform = "translate3d(" + q.x.toFixed(2) + "px,0," + q.z.toFixed(2) + "px)"
+      // 整张图先独立合成，再按离当前页的距离排序；半页不可穿入相邻图片的 3D 平面。
+      el.style.zIndex = String(1000 - Math.round(Math.abs(i - pos.current) * 100))
+      // 每张图在自己的透视空间折叠，整图再投影到平面排序，保留景深且不交叉切割。
+      const lens = stageSize.current.width * 2.3, depthScale = lens / (lens - q.z)
+      el.style.perspective = (lens - q.z).toFixed(2) + 'px'
+      el.style.transform = "translate3d(" + (q.x * depthScale).toFixed(2) + "px,0,0px)" + (q.z ? " scale(" + depthScale.toFixed(5) + ")" : '')
       const l = pages.current[i * 2]
       const r = pages.current[i * 2 + 1]
       if (l) {
@@ -572,7 +578,15 @@ export default function JournalSpreadCarousel({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const map: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, PageDown: 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 }
-    if (e.target !== e.currentTarget) return
+    if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('input,textarea,[contenteditable=true]'))) return
+    if (e.altKey && e.key in map) {
+      if (onReorder) {
+        const id = spreads[target.current]?.id, next = spreads[target.current + map[e.key]]?.id
+        if (id && next) { onCaptionCommit(); onReorder(id, next) }
+      }
+      e.preventDefault(); e.stopPropagation(); return
+    }
+    if (grid) { if ((e.ctrlKey || e.metaKey) && e.key in map) setGrid(false); else return }
     if (!grid && (e.key === '+' || e.key === '=')) changeZoom(zoomRef.current.scale * 1.25)
     else if (!grid && e.key === '-') changeZoom(zoomRef.current.scale / 1.25)
     else if (!grid && e.key === '0') resetZoom()
@@ -667,6 +681,8 @@ export default function JournalSpreadCarousel({
         onPointerCancel={() => { pan.current = null; drag.current = null; setDragging(false); go(target.current, easeOut) }}
         onLostPointerCapture={() => { if (pan.current || drag.current) { pan.current = null; drag.current = null; setDragging(false); go(target.current, easeOut) } }}
       >
+        <button type="button" className="jsc-btn jsc-nav jsc-prev" disabled={index === 0} aria-label={t('上一张图片', 'Previous image')} onPointerDown={event => event.stopPropagation()} onClick={() => { stop(); go(target.current - 1) }}><svg {...ICON}><path d="m14 6-6 6 6 6" /></svg></button>
+        <button type="button" className="jsc-btn jsc-nav jsc-next" disabled={index === n - 1} aria-label={t('下一张图片', 'Next image')} onPointerDown={event => event.stopPropagation()} onClick={() => { stop(); go(target.current + 1) }}><svg {...ICON}><path d="m10 6 6 6-6 6" /></svg></button>
         <div className="jsc-camera" style={{ transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` }}>
         {/* 放大查看使用完整图面，避免两个半页在非整数缩放下出现拼接细线。 */}
         {zoom.scale > 1 && current && <div className="jsc-detail"><Sheet spread={current} /></div>}
@@ -687,7 +703,7 @@ export default function JournalSpreadCarousel({
                 aria-hidden={i !== index}
               >
                 {s.alt ? <span className="jsc-sr">{s.alt}</span> : null}
-                {(["l", "r"] as const).map((side, k) => (
+                <div className="jsc-fold">{(["l", "r"] as const).map((side, k) => (
                   <div
                     key={side}
                     ref={(el) => {
@@ -699,7 +715,7 @@ export default function JournalSpreadCarousel({
                     <Sheet spread={s} />
                     <div className="jsc-shade" />
                   </div>
-                ))}
+                ))}</div>
               </div>
             ))}
           </div>
@@ -710,9 +726,7 @@ export default function JournalSpreadCarousel({
       <footer className="jsc-footer">
         {!grid && <label className="jsc-caption"><span>{current?.label}</span><textarea aria-label={t('当前图片备注', 'Current image caption')} readOnly={captionReadOnly} value={caption} placeholder={t('为这张图片添加备注…', 'Add a caption for this image…')} onChange={event => onCaptionChange(event.target.value)} onBlur={onCaptionCommit} /></label>}
         <div className="jsc-bar">
-          <button type="button" className="jsc-btn" disabled={index === 0} aria-label={t('上一张图片', 'Previous image')} onClick={() => { stop(); go(target.current - 1) }}><svg {...ICON}><path d="m14 6-6 6 6 6" /></svg></button>
           <span className="jsc-position" aria-live="polite">{index + 1} / {n}</span>
-          <button type="button" className="jsc-btn" disabled={index === n - 1} aria-label={t('下一张图片', 'Next image')} onClick={() => { stop(); go(target.current + 1) }}><svg {...ICON}><path d="m10 6 6 6-6 6" /></svg></button>
         </div>
       </footer>
 

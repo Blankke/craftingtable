@@ -66,7 +66,7 @@ try {
   await page.getByLabel('项目名称').fill('城市声音 · 影像策划');
   await page.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(page.locator('.canvas')).toBeVisible();
-  await page.getByRole('button', { name: '矩形', exact: true }).click();
+  await page.getByRole('button', { name: '矩形', exact: true }).dblclick();
   await capture('canvas-light.png');
   if (!baseline) {
     console.log('验证侧栏拖动、取消和面板展开');

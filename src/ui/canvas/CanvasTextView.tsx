@@ -12,7 +12,7 @@ export function CanvasTextView({ object, scale = 1 }: { object: TextObject; scal
   const { tokens } = useTheme();
   const [image, setImage] = useState<HTMLImageElement>();
   const empty = isCanvasTextEmpty(object.text);
-  const source = useMemo(() => empty ? '' : canvasTextImageSource(object, Math.max(1, devicePixelRatio * scale)), [empty, object.text, object.width, object.fontSize, object.style, object.color, object.align, scale]);
+  const source = useMemo(() => empty ? '' : canvasTextImageSource(object, Math.max(1, devicePixelRatio * scale)), [empty, object.text, object.width, object.height, object.writingMode, object.fontSize, object.style, object.color, object.align, scale]);
   useEffect(() => {
     if (!source) { setImage(undefined); return; }
     const next = new window.Image(); next.onload = () => setImage(next); next.src = source;
@@ -20,6 +20,6 @@ export function CanvasTextView({ object, scale = 1 }: { object: TextObject; scal
   }, [source]);
   if (empty && object.kind === 'text') return <Text name="text-placeholder" text={t('双击编辑文字', 'Double click to edit')} x={8} y={8} width={Math.max(1, object.width - 16)} fontSize={object.fontSize} fill={colorToHex(tokens.mutedForeground)} listening={false} />;
   if (empty) return null;
-  const { y, height } = canvasTextLayout(object);
-  return image ? <KonvaImage name="rich-text" image={image} y={y} width={object.width} height={height} /> : null;
+  const { x, y, width, height } = canvasTextLayout(object);
+  return image ? <KonvaImage name="rich-text" image={image} x={x} y={y} width={width} height={height} /> : null;
 }

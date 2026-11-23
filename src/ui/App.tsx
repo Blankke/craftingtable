@@ -88,14 +88,12 @@ export function App() {
   const tool = useInteractionStore(state => state.tool);
   const setTool = useInteractionStore(state => state.setTool);
   const toolPersistent = useInteractionStore(state => state.toolPersistent);
-  const textClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelTextClick = () => { if (textClickTimer.current) clearTimeout(textClickTimer.current); textClickTimer.current = null; };
-  const chooseTool = (next: Tool, persistent = false) => { cancelTextClick(); setTool(next, persistent); };
+  const chooseTool = (next: Tool, persistent = false) => { setTool(next, persistent); };
   const arrowRouting = useInteractionStore(state => state.arrowRouting);
   const setArrowRouting = useInteractionStore(state => state.setArrowRouting);
   const selected = useInteractionStore(state => state.selected);
+  const setSelection = useInteractionStore(state => state.setSelection);
   const setSelected = useInteractionStore(state => state.setSelected);
-  const setSelectedConnections = useInteractionStore(state => state.setSelectedConnections);
   const resetInteraction = useInteractionStore(state => state.reset);
   const dismissSplash = useSplashStore(state => state.dismiss);
   const [saveState, setSaveState] = useState('已保存');
@@ -108,8 +106,8 @@ export function App() {
   const [readingNoteId, setReadingNoteId] = useState<string | null>(null);
   const [openNoteIds, setOpenNoteIds] = useState<string[]>([]);
   // 工作台模式由 App 显式持有，不再用 noteId !== null 隐式判断；模式不写入项目数据。
+  const [libraryRequested, setLibraryRequested] = useState(0);
   const [mode, setMode] = useState<WorkspaceMode>('canvas');
-  useEffect(() => cancelTextClick, [editor, mode, folder]);
   const playbackMediaId = usePlaybackStore(state => state.playback?.mediaId);
   const setPlayback = usePlaybackStore(state => state.setPlayback);
   const trimMode = useInteractionStore(state => state.trimMode);
@@ -196,12 +194,17 @@ export function App() {
     } catch (error) { await api.leaveProject().catch(() => undefined); setHomeError(`${t('新建项目失败', 'Could not create project')}：${String(error)}`); }
     finally { creatingLock.current = false; setCreatingPending(false); }
   }
-  async function openProject(path: string) {
+  async function openProject(path: string, section?: 'canvas' | 'assets' | 'notes') {
     try {
       setHomeError(''); setRetryProjectPath(null);
       await checkDesktopVersion();
       const loaded = await api.openProject(path);
       resetInteraction(); setPlayback(null); setRecoveredProject(!!loaded.recovered); setEditor(createCanvasEditor(loaded)); setFolder(path); dismissSplash();
+      if (section === 'notes' && loaded.notes.length) {
+        const id = loaded.notes[0].id;
+        setOpenNoteIds([id]); setNoteId(id); setReadingNoteId(null); setMode('notes');
+      } else if (section) setMode('canvas');
+      setLibraryRequested(value => section === 'assets' ? value + 1 : 0);
       setSaveState(loaded.recovered ? '已载入恢复快照，请保存' : '已保存');
     } catch (error) { await api.leaveProject().catch(() => undefined); setHomeError(`${t('打开项目失败', 'Could not open project')}：${String(error)}`); setRetryProjectPath(path); }
   }
@@ -287,7 +290,7 @@ export function App() {
   };
   function beginPlacement(event: React.PointerEvent, kind: Tool | 'media' | 'image' | 'note', assetId?: string) {
     if (event.button !== 0) return;
-    cancelTextClick();
+
     suppressClick.current = false; cancelledDrop.current = false;
     const ready: Promise<CanvasObject> = kind === 'note'
       ? Promise.resolve(withDefaultStyle({ id: crypto.randomUUID(), kind: 'note', noteId: assetId!, x: 0, y: 0, width: 180, height: 120, groupId: null }))
@@ -298,6 +301,13 @@ export function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   useEffect(() => {
+    // 拖放只吞掉本次手势尾随的 click；新的按下或键盘激活不继承抑制状态。
+    const resetClick = () => { suppressClick.current = false; };
+    const consumeClick = (event: MouseEvent) => {
+      if (!suppressClick.current) return;
+      suppressClick.current = false;
+      if (event.detail > 0) { event.preventDefault(); event.stopImmediatePropagation(); }
+    };
     const move = (event: PointerEvent) => {
       const item = placement.current; if (!item) return;
       if (Math.hypot(event.clientX - item.x, event.clientY - item.y) > 4) item.moved = true;
@@ -330,8 +340,9 @@ export function App() {
       }
     };
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
+    addEventListener('pointerdown', resetClick, true); addEventListener('click', consumeClick, true);
     addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', cancel); addEventListener('mousedown', down); addEventListener('keydown', key); addEventListener('blur', cancel);
-    return () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', cancel); removeEventListener('mousedown', down); removeEventListener('keydown', key); removeEventListener('blur', cancel); };
+    return () => { removeEventListener('pointerdown', resetClick, true); removeEventListener('click', consumeClick, true); removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', cancel); removeEventListener('mousedown', down); removeEventListener('keydown', key); removeEventListener('blur', cancel); };
   }, [editor]);
   async function dropItem(event: React.DragEvent<HTMLElement>) {
     event.preventDefault(); setDropPreview(null); externalDrag.current = false;
@@ -360,11 +371,11 @@ export function App() {
     if (event.defaultPrevented || (event.target instanceof Element && event.target.closest('[data-edit-menu],dialog'))) return;
     if (event.key === 'Escape') { chooseTool('select'); return; }
     if (canvasShortcut(event, editor, selected)) return;
-    if (event.key === 'Delete' || event.key === 'Backspace') { if (selectedConnections.length) { editor.deleteConnections(selectedConnections); setSelectedConnections([]); } else if (selected.length) { editor.deleteObjects(selected); setSelected([]); } }
+    if (event.key === 'Delete' || event.key === 'Backspace') { editor.deleteObjects(selected, selectedConnections); setSelection([], []); }
     if (event.ctrlKey && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) editor.redo(); else editor.undo(); }
     if (event.ctrlKey && event.key.toLowerCase() === 'y') { event.preventDefault(); editor.redo(); }
-    if (event.ctrlKey && event.key.toLowerCase() === 'a') { event.preventDefault(); setSelected(document.objects.map(item => item.id)); }
-    if (event.ctrlKey && event.key.toLowerCase() === 'd') { event.preventDefault(); if (selected.length) setSelected(editor.duplicateObjects(selected)); else if (selectedConnections.length) setSelectedConnections(pasteCanvasSelection(editor, copyCanvasSelection(editor, [], selectedConnections)).connections); }
+    if (event.ctrlKey && event.key.toLowerCase() === 'a') { event.preventDefault(); setSelection(document.objects.map(item => item.id), document.connections.map(item => item.id)); }
+    if (event.ctrlKey && event.key.toLowerCase() === 'd') { event.preventDefault(); const pasted = pasteCanvasSelection(editor, copyCanvasSelection(editor, selected, selectedConnections)); setSelection(pasted.objects, pasted.connections); }
     if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); void autosave.current?.flush().catch(() => undefined); }
     if (event.key.toLowerCase() === 'm' && !event.ctrlKey && !event.metaKey && !event.repeat && playback && selected.length === 1 && selected[0] === playback.mediaId) { event.preventDefault(); editor.addMarker(playback.mediaId, playback.timeUs); useInteractionStore.getState().setSelectedMarker(null); }
     if (event.code === 'Space') { event.preventDefault(); if (!event.repeat) spacePanUsed.current = false; spacePressed.current = true; }
@@ -391,7 +402,7 @@ export function App() {
       event.preventDefault();
       event.clipboardData.setData(CANVAS_CLIPBOARD_MIME, JSON.stringify(copyCanvasSelection(editor, selected, selectedConnections)));
       event.clipboardData.setData('text/plain', editor.document.objects.filter(item => selected.includes(item.id)).map(item => 'text' in item ? canvasTextPlainText(item.text) : '').filter(Boolean).join('\n'));
-      if (event.type === 'cut') { if (selectedConnections.length) editor.deleteConnections(selectedConnections); else editor.deleteObjects(selected); setSelected([]); }
+      if (event.type === 'cut') { editor.deleteObjects(selected, selectedConnections); setSelection([], []); }
     };
     const pastePosition = () => {
       const rect = canvasRef.current!.getBoundingClientRect(), pointer = lastCanvasPointer.current;
@@ -428,7 +439,7 @@ export function App() {
         try {
           const copied = JSON.parse(internal) as ProjectDocument;
           if (copied.id === editor.document.id) {
-            event.preventDefault(); const pasted = pasteCanvasSelection(editor, copied); if (pasted.objects.length) setSelected(pasted.objects); else setSelectedConnections(pasted.connections); return;
+            event.preventDefault(); const pasted = pasteCanvasSelection(editor, copied); setSelection(pasted.objects, pasted.connections); return;
           }
         } catch { /* 外部剪贴板自定义数据无效时继续读取普通文字。 */ }
       }
@@ -475,12 +486,12 @@ export function App() {
     <div className="project-grid">
       {projects.map(project => {
         const name = project.name;
-        const files: { name: string; meta: string; art: FolderArt; image?: string }[] = [];
-        if (project.summary.objects) files.push({ name: t('画布', 'Canvas'), meta: `${project.summary.objects} ${t('个对象', 'objects')}`, art: 'none', image: project.preview.canvas });
-        if (project.summary.assets) files.push({ name: t('素材', 'Assets'), meta: `${project.summary.assets} ${t('项素材', 'assets')}`, art: 'none', image: project.preview.media });
-        if (project.summary.notes) files.push({ name: t('笔记', 'Notes'), meta: `${project.summary.notes} ${t('篇笔记', 'notes')}`, art: 'none', image: project.preview.note });
+        const files: { section: 'canvas' | 'assets' | 'notes'; name: string; meta: string; art: FolderArt; image?: string }[] = [];
+        if (project.summary.objects) files.push({ section: 'canvas', name: t('画布', 'Canvas'), meta: `${project.summary.objects} ${t('个对象', 'objects')}`, art: 'none', image: project.preview.canvas });
+        if (project.summary.assets) files.push({ section: 'assets', name: t('素材', 'Assets'), meta: `${project.summary.assets} ${t('项素材', 'assets')}`, art: 'none', image: project.preview.media });
+        if (project.summary.notes) files.push({ section: 'notes', name: t('笔记', 'Notes'), meta: `${project.summary.notes} ${t('篇笔记', 'notes')}`, art: 'none', image: project.preview.note });
         const meta = project.status === 'invalid' ? t('项目文件无效', 'Invalid project') : files.length ? `${files.length} ${t('类内容', 'sections')}` : t('空项目', 'Empty project');
-        return <GlassFolderCard key={project.folder} label={name} meta={meta} files={files} onOpen={() => openProject(project.folder)} onReveal={() => { void api.revealProject(project.folder).catch(error => setHomeError(String(error))); }} onDelete={() => { void deleteProject(project); }} onRename={() => { setRenamingFolder(project.folder); setProjectName(name); setHomeError(''); }} />;
+        return <GlassFolderCard key={project.folder} label={name} meta={meta} files={files} onOpen={() => openProject(project.folder)} onOpenSection={index => void openProject(project.folder, files[index].section)} onReveal={() => { void api.revealProject(project.folder).catch(error => setHomeError(String(error))); }} onDelete={() => { void deleteProject(project); }} onRename={() => { setRenamingFolder(project.folder); setProjectName(name); setHomeError(''); }} />;
       })}
       <div className="home-create"><button className="project-card plus" aria-label={t('添加项目', 'Add project')} onClick={() => setHomeMenu(value => !value)}>+</button>
         {homeMenu && <div className="home-menu"><button onClick={() => { setHomeMenu(false); setCreating(true); setHomeError(''); }}>{t('新建项目', 'New project')}</button><button onClick={pickProjectFolder}>{t('打开项目文件夹', 'Open project folder')}</button></div>}
@@ -496,7 +507,7 @@ export function App() {
     {themeModal}
   </main>;
   return <div className="app" onContextMenu={event => event.preventDefault()} onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}><header className="workspace-header">
-    <nav className="workspace-nav-left" aria-label={t('工作台导航', 'Workbench navigation')}><button type="button" onClick={async () => { cancelTextClick(); try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); await refreshProjects(); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button><WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /></nav>
+    <nav className="workspace-nav-left" aria-label={t('工作台导航', 'Workbench navigation')}><button type="button" onClick={async () => {  try { await autosave.current?.flush(); await api.leaveProject(); resetInteraction(); setFolder(null); setPlayback(null); await refreshProjects(); } catch { setSaveState('保存失败'); } }}>{t('‹ 项目', '‹ Projects')}</button><WorkspaceModeSwitch mode={mode} onModeChange={changeMode} /></nav>
     <div className="workspace-header-center"><strong>{document.name}</strong><span>{saveState === '已保存' ? t('已保存', 'Saved') : saveState === '未保存' ? t('未保存', 'Unsaved') : saveState === '保存失败' ? t('保存失败', 'Save failed') : t('已载入恢复快照，请保存', 'Recovery loaded; please save')}</span></div>
     <nav className="workspace-nav-actions" aria-label={t('编辑操作', 'Editing actions')}>
       {saveState === '保存失败' && <button type="button" onClick={() => { void autosave.current?.flush().catch(() => undefined); }}>{t('重试保存', 'Retry save')}</button>}
@@ -516,14 +527,8 @@ export function App() {
       const persistent = tool === kind && toolPersistent;
       return <button key={kind} title={`${label} · ${t('双击持续使用，Esc 退出', 'Double-click to keep using; Esc to exit')}`} aria-label={label} aria-pressed={tool === kind} aria-describedby={persistent ? 'persistent-tool-hint' : undefined} data-persistent={persistent || undefined}
         onPointerDown={kind === 'text' ? event => beginPlacement(event, 'text') : undefined}
-        onClick={event => {
-          if (kind !== 'text') { chooseTool(kind); return; }
-          if (suppressClick.current || event.detail > 1) return;
-          cancelTextClick();
-          // 双击的第二次点击会取消待创建任务，防止进入持续工具时额外生成两个文本框。
-          if (event.detail === 0) void addObject('text');
-          else textClickTimer.current = setTimeout(() => { textClickTimer.current = null; void addObject('text'); }, 500);
-        }} onDoubleClick={() => chooseTool(kind, true)}
+        onClick={() => { if (!suppressClick.current) chooseTool(kind); }}
+        onDoubleClick={() => { if (kind === 'text') void addObject('text').then(() => chooseTool(kind, true)); else chooseTool(kind, true); }}
         onKeyDown={event => { if (event.shiftKey && event.key === 'Enter') { event.preventDefault(); chooseTool(kind, true); } }}>
         <WorkbenchIcon name={kind} />{persistent && <Pin className="tool-persistent-mark" size={11} aria-hidden="true" />}
       </button>;
@@ -532,10 +537,10 @@ export function App() {
     {Object.entries(shapeGroups).map(([group, kinds]) => {
       const matches = kinds.filter(kind => !shapeSearch || shapeLabels[kind].toLocaleLowerCase().includes(shapeSearch.toLocaleLowerCase()) || kind.toLocaleLowerCase().includes(shapeSearch.toLocaleLowerCase()));
       return matches.length ? <details className="shape-group" key={group} open={!!shapeSearch || !collapsedGroups.includes(group)}>
-        <summary onClick={event => { event.preventDefault(); setCollapsedGroups(groups => groups.includes(group) ? groups.filter(item => item !== group) : [...groups, group]); }}>{group}</summary><div className="tool-grid">{matches.map(kind => <button key={kind} className="tool-tile" title={shapeLabels[kind]} aria-label={shapeLabels[kind]} onPointerDown={event => beginPlacement(event, kind as typeof shapeKinds[number])} onClick={() => void addObject(kind as typeof shapeKinds[number])}><ShapeIcon kind={kind}/><span>{shapeLabels[kind]}</span></button>)}</div>
+        <summary onClick={event => { event.preventDefault(); setCollapsedGroups(groups => groups.includes(group) ? groups.filter(item => item !== group) : [...groups, group]); }}>{group}</summary><div className="tool-grid">{matches.map(kind => <button key={kind} className="tool-tile" title={shapeLabels[kind]} aria-label={shapeLabels[kind]} onPointerDown={event => beginPlacement(event, kind as typeof shapeKinds[number])} aria-pressed={tool === kind} onClick={() => { if (!suppressClick.current) chooseTool(kind); }} onDoubleClick={() => void addObject(kind)}><ShapeIcon kind={kind}/><span>{shapeLabels[kind]}</span></button>)}</div>
       </details> : null;
     })}</>}
   library={<><button onClick={importAssets}>+ 导入素材</button><TextAssetCreator onCreate={createTextAsset}/><MediaTaskList document={document} analysis={analysis} onCancel={taskId => { void api.cancelTask(taskId); }} onRetry={retryAnalysis}/><AssetLibrary assets={document.assets} notes={document.notes} referencedIds={referencedIds} processingAssetIds={processingAssetIds} failedAssetIds={failedAssetIds} onPlace={beginPlacement} onAdd={addObject} onRelink={relinkAsset} onReveal={path => { void api.revealAsset(path).catch(error => setSaveState(`${t('无法显示素材文件', 'Could not reveal asset')}: ${String(error)}`)); }} onRemove={async id => { const asset = editor.document.assets.find(item => item.id === id); if (!asset) return; try { await api.removeAsset(asset.path); editor.removeAsset(id); } catch (error) { setSaveState(`${t('移除素材失败', 'Could not remove asset')}: ${String(error)}`); } }} onOpenNote={id => { if (!suppressClick.current) openNote(id); }} onAddNote={id => { void addObject('note', id); }} onPlaceNote={(event, id) => beginPlacement(event, 'note', id)} onDuplicateNote={id => openNote(editor.duplicateNote(id))} onRemoveNote={id => { editor.deleteNote(id); closeNote(id); }}/></>}
-  inspector={mergedInspector} autoOpenProperties={!!selectedMedia} propertiesRequest={inspectorRequested}/>
+  inspector={mergedInspector} autoOpenProperties={!!selectedMedia} propertiesRequest={inspectorRequested} libraryRequest={libraryRequested}/>
   </div>}{dropPreview && <div className={`drop-ghost${dropPreview.shape ? ' drop-ghost-shape' : ''}${dropPreview.note ? ' drop-ghost-note' : ''}`} style={{ left: dropPreview.x + 12, top: dropPreview.y + 12 }}>{dropPreview.image && <img src={dropPreview.image} alt=""/>}{dropPreview.shape ? <ShapeIcon kind={dropPreview.shape}/> : dropPreview.note ? <><strong>{dropPreview.label}</strong><span>笔记</span></> : <span>{dropPreview.label}</span>}</div>}{themeModal}</div>;
 }

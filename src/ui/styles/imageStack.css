@@ -32,16 +32,23 @@
 .jsc-grid img{width:100%;height:140px;object-fit:contain}.jsc-grid span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .jsc-grid small{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--wb-muted-foreground);font-size:12px;line-height:1.5}
 @media(max-width:640px){.image-stack-dialog{width:98vw;max-width:98vw}.image-stack-dialog .jsc-top{flex-wrap:wrap}.image-stack-dialog .jsc-head{max-width:none}.image-stack-dialog .jsc-top>.jsc-group:last-child{margin-left:auto}.image-stack-dialog .jsc-footer{gap:12px;padding:0 12px 12px}.jsc-caption{flex:1;min-width:0}.image-stack-dialog .jsc-bar{gap:6px}.image-stack-dialog .jsc-btn{width:34px;height:34px}}
-/* 总览保留原缩略图大小；拖动反馈只绘制边框与位移，不触发布局动画。 */
+/* 总览保留缩略图大小，图片之间预留插入槽；拖动反馈不改变卡片布局。 */
 .jsc-overview{min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .jsc-sort-help{margin:14px 24px 0;color:var(--wb-muted-foreground);font-size:12px;line-height:1.6}
-.jsc-overview .jsc-grid{min-height:0;flex:1;padding:3px;margin-top:8px;isolation:isolate}
+.jsc-overview .jsc-grid{min-height:0;flex:1;padding:14px;margin-top:8px;isolation:isolate;gap:24px}
 .jsc-grid button{position:relative;border-radius:6px;user-select:none;transition:background-color 140ms var(--wb-ease-out),border-color 140ms var(--wb-ease-out),color 140ms var(--wb-ease-out)}
-/* 拖动和取消直接跟随指针，禁止继承通用按钮的位移动画。 */
+/* 拖动原件留在原位，禁止继承通用按钮的位移动画。 */
 .jsc-grid button:active:not(:disabled){transform:none}
 .jsc-grid[data-sortable] button{cursor:grab;touch-action:none}
 .jsc-grid button:focus-visible{outline:2px solid var(--wb-primary);outline-offset:1px}
 .jsc-grid button[aria-current=true]{border-color:var(--wb-primary)}
-.jsc-grid button[data-dragging]{cursor:grabbing;box-shadow:0 8px 24px #0004;outline:2px solid var(--wb-primary)}
-.jsc-grid button[data-drop-target]{outline:3px solid var(--wb-primary);outline-offset:-3px;background:var(--wb-secondary)}
+.jsc-grid button[data-dragging]{cursor:grabbing;opacity:.45}
+.jsc-grid[data-sorting] button::before,.jsc-grid[data-sorting] button::after{content:"";position:absolute;top:4px;bottom:4px;width:4px;border-radius:4px;background:color-mix(in srgb,var(--wb-foreground) 12%,transparent);pointer-events:none}
+.jsc-grid[data-sorting] button::before{left:-14px}.jsc-grid[data-sorting] button::after{right:-14px}
+.jsc-grid[data-sorting] button[data-insert=before]::before,.jsc-grid[data-sorting] button[data-insert=after]::after{background:var(--wb-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--wb-primary) 18%,transparent)}
 .jsc-sort-status{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+
+/* 导航固定在图片两侧，独立于缩放和 3D 图面。 */
+.image-stack-dialog .jsc-nav{position:absolute;top:50%;margin-top:-24px;z-index:2000;cursor:pointer}
+.image-stack-dialog .jsc-prev{left:16px}
+.image-stack-dialog .jsc-next{right:16px}

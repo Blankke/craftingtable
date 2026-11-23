@@ -116,7 +116,7 @@ test('颜色弹层、图形轮廓与箭头头部预览', async () => {
     // 工具区图形预览为无填充、主题色描边的轮廓。
     await expect(page.locator('.shape-icon path').first()).toHaveAttribute('fill', 'none');
     // 放置矩形并打开编辑面板，颜色入口弹出统一弹层，Pantone 扁平展示（无年份分组标题）。
-    await page.getByRole('button', { name: '矩形' }).first().click();
+    await page.getByRole('button', { name: '矩形' }).first().dblclick();
     await page.getByRole('button', { name: '编辑视图' }).click();
     await page.getByRole('button', { name: '填充颜色' }).click();
     await expect(page.locator('.color-popover')).toBeVisible();

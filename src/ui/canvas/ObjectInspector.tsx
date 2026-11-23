@@ -5,6 +5,7 @@ import type { Arrangement, Editor } from '../../core/editor';
 import type { CanvasObject, ProjectDocument } from '../../core/document';
 import { isShapeObject, lockStandardShape, resizeObject, restoredImageRatio, styleOf } from '../../core/appearance';
 import { stylePresetsFor } from '../../core/elementStyles';
+import { shapeAdjustmentHandles, type ShapeAdjustments } from '../../core/shapeGeometry';
 import { TextToolbar } from './TextToolbar';
 import { CanvasRichTextInput } from './CanvasTextEditor';
 import { emptyCanvasText } from '../../core/canvasText';
@@ -30,6 +31,10 @@ export function ObjectInspector({ editor, objects, assets, requestedTab = '样�
   const object = objects[0];
   if (!object) return <div className="inspector-empty"><MousePointer2 size={24} strokeWidth={1.4} /><span>{t('未选择对象', 'No object selected')}</span></div>;
   const style = styleOf(object);
+  const adjustments = 'adjustments' in object ? object.adjustments ?? {} : {};
+  const adjustmentFields = shapeAdjustmentHandles(object).flatMap(handle => handle.id === 'tail'
+    ? [{ key: 'tailX' as keyof ShapeAdjustments, label: '引出角 X（%）', value: handle.x / object.width, min: -100, max: 200 }, { key: 'tailY' as keyof ShapeAdjustments, label: '引出角 Y（%）', value: handle.y / object.height, min: -100, max: 200 }]
+    : [{ key: handle.id as keyof ShapeAdjustments, label: `${handle.label}（%）`, value: handle.id === 'radius' ? handle.x / Math.min(object.width, object.height) : handle.id === 'inset' ? handle.x / object.width : handle.id === 'shaft' ? adjustments.shaft ?? .5 : adjustments.head ?? .4, min: ['shaft', 'head'].includes(handle.id) ? 10 : 0, max: handle.id === 'radius' ? 50 : handle.id === 'inset' ? 45 : 90 }]);
   const update = (change: (target: CanvasObject) => void) => editor.execute(draft => draft.objects.filter(item => objects.some(o => o.id === item.id)).forEach(change));
   const updateStyle = (patch: Partial<typeof style>) => update(target => { target.style = { ...styleOf(target), ...patch }; });
   const previewUpdate = (change: (target: CanvasObject) => void) => editor.preview(draft => draft.objects.filter(item => objects.some(object => object.id === item.id)).forEach(change));
@@ -83,6 +88,7 @@ export function ObjectInspector({ editor, objects, assets, requestedTab = '样�
       {object.kind !== 'media' && <><NumberField editor={editor} label={t('宽度', 'Width')} value={object.width} min={12} onPreview={width => previewUpdate(target => resizeObject(target, width, target.height))} /><NumberField editor={editor} label={t('高度', 'Height')} value={object.height} min={12} onPreview={height => previewUpdate(target => resizeObject(target, target.width, height, 'height'))} /></>}
       {isShapeObject(object) && <label><span><input type="checkbox" aria-label={t('锁定标准比例', 'Lock standard proportions')} checked={object.aspectLocked === true} onChange={event => update(target => lockStandardShape(target, event.target.checked))} />{t('锁定标准比例', 'Lock standard proportions')}</span></label>}
     </fieldset>
+    {adjustmentFields.length > 0 && <fieldset><legend>{t('形状调整', 'Shape adjustments')}</legend><small>{t('也可拖动画布上的黄色调节点', 'Or drag the yellow adjustment handles')}</small>{adjustmentFields.map(field => <NumberField key={field.key} editor={editor} label={field.label} value={Math.round(field.value * 100)} min={field.min} max={field.max} onPreview={value => previewUpdate(target => { if ('fill' in target && target.kind === object.kind) target.adjustments = { ...target.adjustments, [field.key]: value / 100 }; })}/>)}</fieldset>}
     <div className="inspector-tabs" role="tablist">{['样式', '文本', '排列'].map(item => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}</button>)}</div>
     {tab === '样式' && <>
       <div className="preset-grid">{presets.map(preset => <button key={preset.id} className="preset-option" aria-label={preset.label} onClick={() => updateStyle(preset.style)}><PresetCard label={preset.label} style={{ ...style, ...preset.style }} /></button>)}</div>

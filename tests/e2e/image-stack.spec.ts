@@ -70,6 +70,16 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) test(`叠�
     await page.keyboard.press('Control+y'); await expect.poll(async () => (await saved()).objects.length).toBe(1);
     await page.mouse.dblclick(canvas.x + 180, canvas.y + 190); await expect(viewer).toBeVisible();
     await page.waitForTimeout(650); await capture('viewer-fit.png');
+    // 工具按钮持有焦点时仍可 Ctrl 翻页、Alt 排序；输入备注保留原生光标行为。
+    await viewer.getByRole('button', { name: '适应窗口', exact: true }).click();
+    await page.keyboard.press('Control+ArrowRight'); await expect(viewer.locator('.jsc-position')).toHaveText('2 / 3');
+    await page.keyboard.press('Control+ArrowLeft'); await expect(viewer.locator('.jsc-position')).toHaveText('1 / 3');
+    const orderBeforeKeys = await saved();
+    await page.keyboard.press('Alt+ArrowRight'); await expect(viewer.locator('.jsc-position')).toHaveText('2 / 3');
+    await page.keyboard.press('Control+z'); await expect.poll(async () => (await saved()).objects).toEqual(orderBeforeKeys.objects);
+    await expect(viewer.locator('.jsc-position')).toHaveText('1 / 3');
+    await expect(viewer.locator('.jsc-stage .jsc-nav')).toHaveCount(2);
+    await expect(viewer.locator('.jsc-footer .jsc-btn')).toHaveCount(0);
     const caption = viewer.getByRole('textbox', { name: '当前图片备注', exact: true });
     const pageSize = () => viewer.locator('.jsc-item').evaluateAll(elements => elements.map(element => { const rect = element.querySelector('.jsc-page')!; const style = getComputedStyle(rect); return { width: style.width, height: style.height, background: style.backgroundColor, perspective: getComputedStyle(element.closest('.jsc-view')!).perspective }; }));
     const sizesBefore = await pageSize();
@@ -149,9 +159,9 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) test(`叠�
       });
     });
     const first = (await gridImages.nth(0).boundingBox())!, last = (await gridImages.nth(2).boundingBox())!;
-    const startDrag = async () => { await page.mouse.move(first.x + first.width / 2, first.y + 60); await page.mouse.down(); await page.mouse.move(last.x + last.width / 2, last.y + 60, { steps: 12 }); };
+    const startDrag = async () => { await page.mouse.move(first.x + first.width / 2, first.y + 60); await page.mouse.down(); await page.mouse.move(last.x + last.width + 8, last.y + 60, { steps: 12 }); };
     await startDrag();
-    await expect(viewer.locator('[data-drop-target]')).toHaveCount(1);
+    await expect(viewer.locator('[data-insert]')).toHaveCount(1);
     await capture('viewer-grid-dragging.png');
     await page.keyboard.press('Escape');
     const cancelledX = await gridImages.nth(0).evaluate(element => element.getBoundingClientRect().x);

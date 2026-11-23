@@ -19,20 +19,20 @@ test('项目创建后画布对象能保存并重开', async () => {
     const chosenRoot = path.join(testRoot, 'chosen-projects');
     await mkdir(chosenRoot);
     await application.evaluate(({ dialog }, folder) => { Object.defineProperty(dialog, 'showOpenDialog', { value: async () => ({ canceled: false, filePaths: [folder] }) }); }, chosenRoot);
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
     await page.getByLabel('强制播放动画').check();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.forceMotion)).toBe('true');
     await page.getByLabel('强制播放动画').uncheck();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.forceMotion)).toBe('false');
     await page.getByRole('button', { name: '选择文件夹' }).click();
     await expect(page.locator('.settings-path')).toHaveText(chosenRoot);
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
     await page.locator('.plus').click();
     await page.getByRole('button', { name: '新建项目' }).click();
     await page.getByLabel('项目名称').fill('端到端项目');
     await page.getByRole('button', { name: '创建项目' }).click();
     await expect(page.locator('.canvas')).toBeVisible();
-    await page.getByRole('button', { name: '矩形', exact: true }).click();
+    await page.getByRole('button', { name: '矩形', exact: true }).dblclick();
     // 中键平移后，网格与画布对象使用同一相机偏移，并一同写入项目。
     await expect(page.locator('.canvas')).toHaveCSS('background-position', '0px 0px, 0px 0px');
     await page.locator('.canvas').evaluate(element => {
@@ -72,7 +72,7 @@ test('项目创建后画布对象能保存并重开', async () => {
     await expect(page.locator('.canvas')).toHaveCSS('background-size', '26.4px 26.4px, 26.4px 26.4px');
     await expect(page.locator('.canvas')).toHaveAttribute('data-selected', '');
     await expect(page.getByRole('button', { name: '选择' })).toHaveAttribute('aria-pressed', 'true');
-    await page.getByRole('button', { name: '矩形', exact: true }).click();
+    await page.getByRole('button', { name: '矩形', exact: true }).dblclick();
     // 直接关闭窗口时，主进程必须等待渲染端提交最后一次编辑。
     await application.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); });
     await expect.poll(async () => {
@@ -97,9 +97,9 @@ test('素材库移除会同步删除项目素材文件', async () => {
     const chosenRoot = path.join(testRoot, 'chosen-projects');
     await mkdir(chosenRoot);
     await application.evaluate(({ dialog }, folder) => { Object.defineProperty(dialog, 'showOpenDialog', { value: async () => ({ canceled: false, filePaths: [folder] }) }); }, chosenRoot);
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
     await page.getByRole('button', { name: '选择文件夹' }).click();
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
     await page.locator('.plus').click();
     await page.getByRole('button', { name: '新建项目' }).click();
     await page.getByLabel('项目名称').fill('素材清理');

@@ -12,11 +12,14 @@ export function copyCanvasSelection(editor: Editor, ids: string[], connectionIds
   result.markers = structuredClone(source.markers.filter(marker => members.has(marker.mediaId)));
   const markers = new Set(result.markers.map(marker => marker.id));
   result.connections = structuredClone(source.connections.filter(connection => [connection.from, connection.to].some(anchor => anchor.kind !== 'free') && [connection.from, connection.to].every(anchor => anchor.kind === 'free' || (anchor.kind === 'object' ? members.has(anchor.objectId) : markers.has(anchor.markerId)))));
-  // 单独复制连线时固定当前端点位置，粘贴后成为独立连线，不带走原对象。
+  // 未复制的对象端点固定为当前位置；选区内的对象引用保留，粘贴后随副本移动。
   for (const connection of source.connections.filter(connection => connectionIds.includes(connection.id) && !result.connections.some(item => item.id === connection.id))) {
     const start = resolveAnchor(source, connection.from), end = resolveAnchor(source, connection.to);
     const from = resolveAnchor(source, connection.from, end ?? undefined), to = resolveAnchor(source, connection.to, start ?? undefined);
-    if (from && to) result.connections.push({ ...structuredClone(connection), from: { kind: 'free', point: from }, to: { kind: 'free', point: to } });
+    if (from && to) {
+      const included = (anchor: typeof connection.from) => anchor.kind === 'object' ? members.has(anchor.objectId) : anchor.kind === 'time' && markers.has(anchor.markerId);
+      result.connections.push({ ...structuredClone(connection), from: included(connection.from) ? structuredClone(connection.from) : { kind: 'free', point: from }, to: included(connection.to) ? structuredClone(connection.to) : { kind: 'free', point: to } });
+    }
   }
   const groups = new Set<string>();
   for (const object of result.objects) { let id = object.groupId; while (id) { groups.add(id); id = source.groups.find(group => group.id === id)?.parentId ?? null; } }
@@ -43,5 +46,5 @@ export function pasteCanvasSelection(editor: Editor, raw: unknown, offset = { x:
     draft.connections.push(...temporary.document.connections.filter(connection => !beforeConnections.has(connection.id)));
     draft.connections.push(...freeConnections);
   });
-  return { objects: ids, connections: freeConnections.map(connection => connection.id) };
+  return { objects: ids, connections: [...temporary.document.connections.filter(connection => !beforeConnections.has(connection.id)), ...freeConnections].map(connection => connection.id) };
 }

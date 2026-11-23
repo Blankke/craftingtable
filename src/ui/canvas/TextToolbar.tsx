@@ -9,6 +9,7 @@ export function TextToolbar({ editor, object }: { editor: Editor; object: TextOb
     editor.execute(draft => { const target = draft.objects.find(item => item.id === object.id); if (target && ('text' in target || 'fill' in target)) change(target); });
   };
   return <div className="text-toolbar">
+    <label>{t('书写方向', 'Writing direction')} <select aria-label={t('书写方向', 'Writing direction')} value={object.writingMode ?? 'horizontal-tb'} onChange={event => update(target => { target.writingMode = event.target.value as 'horizontal-tb' | 'vertical-rl'; })}><option value="horizontal-tb">{t('横向书写', 'Horizontal')}</option><option value="vertical-rl">{t('竖向书写', 'Vertical')}</option></select></label>
     <label>{t('字号', 'Font size')} <input aria-label={t('字号', 'Font size')} type="number" min="8" max="96" value={object.fontSize ?? 18} onChange={event => update(target => { target.fontSize = Math.max(8, Math.min(96, Number(event.target.value) || 8)); })} /></label>
     <label>{t('颜色', 'Color')} <ColorTrigger label={t('文字颜色', 'Text color')} value={object.color ?? '#172033'} onChange={color => update(target => { target.color = color; })} /></label>
     <label>{t('对齐', 'Alignment')} <select aria-label={t('文字对齐', 'Text alignment')} value={object.align ?? 'center'} onChange={event => update(target => { target.align = event.target.value as 'left' | 'center' | 'right'; })}><option value="left">{t('左对齐', 'Left')}</option><option value="center">{t('居中', 'Center')}</option><option value="right">{t('右对齐', 'Right')}</option></select></label>

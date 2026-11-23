@@ -2,7 +2,7 @@
 import type { ProjectDocument } from './document';
 import { noteText } from './note';
 import { canvasTextPlainText } from './canvasText';
-import { shapePath } from './shapeGeometry';
+import { shapePath, shapeRadius } from './shapeGeometry';
 
 export interface ProjectPreview {
   canvas?: string;
@@ -36,14 +36,22 @@ export function buildProjectPreview(document: ProjectDocument, mediaByAsset: Rea
       if ((object.kind === 'image' || object.kind === 'media') && mediaByAsset.has(object.assetId)) {
         return rotated(`<image href="${xml(mediaByAsset.get(object.assetId)!)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice"/>`);
       }
-      if (object.kind === 'text') return rotated(`<text x="${x}" y="${y + Math.min(16, height)}" font-size="${Math.max(7, Math.min(15, object.fontSize * scale))}" fill="${xml(object.color)}">${xml(canvasTextPlainText(object.text).slice(0, 40))}</text>`);
+      if (object.kind === 'text') {
+        const font = Math.max(7, Math.min(15, object.fontSize * scale)), text = canvasTextPlainText(object.text).slice(0, 40);
+        if (object.writingMode === 'vertical-rl') {
+          const count = Math.max(1, Math.floor((height - 8) / font)), characters = Array.from(text);
+          const columns = Array.from({ length: Math.ceil(characters.length / count) }, (_, index) => `<text x="${x + width - font / 2 - index * font * 1.4}" y="${y + 4}" writing-mode="vertical-rl" font-size="${font}" fill="${xml(object.color)}">${xml(characters.slice(index * count, (index + 1) * count).join(''))}</text>`).join('');
+          return rotated(columns);
+        }
+        return rotated(`<text x="${x}" y="${y + Math.min(16, height)}" font-size="${font}" fill="${xml(object.color)}">${xml(text)}</text>`);
+      }
       if (object.kind === 'ellipse') return rotated(`<ellipse cx="${x + width / 2}" cy="${y + height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${xml(object.fill)}" stroke="${xml(object.stroke)}"/>`);
-      const path = shapePath(object.kind);
+      const path = shapePath(object.kind, 'adjustments' in object ? object.adjustments : undefined);
       if (path && 'fill' in object && 'stroke' in object) return rotated(`<path d="${path}" transform="translate(${x} ${y}) scale(${width / 100} ${height / 100})" fill="${xml(object.fill)}" stroke="${xml(object.stroke)}"/>`);
       const fill = object.kind === 'note' ? '#fffdf1' : object.kind === 'media' ? '#dce4ff' : object.kind === 'image' ? '#e4e9f2' : object.kind === 'stroke' ? 'none' : object.fill;
       const stroke = object.kind === 'note' || object.kind === 'media' || object.kind === 'image' ? '#8895bd' : object.kind === 'stroke' ? object.color : object.stroke;
       if (object.kind === 'stroke') return `<path d="${object.points.map((point, index) => `${index ? 'L' : 'M'}${point.x * scale + xOffset} ${point.y * scale + yOffset}`).join(' ')}" fill="none" stroke="${xml(stroke)}" stroke-width="${Math.max(1, object.strokeWidth * scale)}"/>`;
-      return rotated(`<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${object.kind === 'roundedRectangle' || object.kind === 'note' ? 6 : 1}" fill="${xml(fill)}" stroke="${xml(stroke)}"/>`);
+      return rotated(`<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${object.kind === 'roundedRectangle' ? shapeRadius(object) * scale : object.kind === 'note' ? 6 : 1}" fill="${xml(fill)}" stroke="${xml(stroke)}"/>`);
     }).join('');
     preview.canvas = svg(shapes);
   }

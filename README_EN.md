@@ -6,7 +6,7 @@
 
 **Bring media, ideas and notes together on one canvas.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-5268e8)](https://github.com/Blankke/craftingtable/releases/tag/v0.1)
+[![Version](https://img.shields.io/badge/version-0.2.0-5268e8)](https://github.com/Blankke/craftingtable/releases/tag/v0.2)
 [![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4)](#download)
 [![Linux](https://img.shields.io/badge/Linux-x64-FCC624)](#download)
 [![Electron](https://img.shields.io/badge/Electron-45-47848F)](https://www.electronjs.org/)
@@ -14,7 +14,7 @@
 
 [中文](README.md) | **English**
 
-[Download](https://github.com/Blankke/craftingtable/releases/tag/v0.1) · [Features](#features) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Feedback](https://github.com/Blankke/craftingtable/issues)
+[Download](https://github.com/Blankke/craftingtable/releases/tag/v0.2) · [Features](#features) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Feedback](https://github.com/Blankke/craftingtable/issues)
 
 </div>
 
@@ -37,31 +37,31 @@ Projects live in folders you control. Editing, media analysis and saving work lo
 
 ## Download
 
-Download the appropriate package from **[GitHub Releases](https://github.com/Blankke/craftingtable/releases/tag/v0.1)**.
+Download the appropriate package from **[GitHub Releases](https://github.com/Blankke/craftingtable/releases/tag/v0.2)**.
 
 | System | Package | Use |
 | --- | --- | --- |
-| Windows 10 / 11, x64 | `CraftingTable-0.1.0-win-x64.exe` | Installer with a selectable installation folder. |
-| Windows 10 / 11, x64 | `CraftingTable-0.1.0-win-x64-portable.exe` | Run without installation. |
-| Linux, x64 | `CraftingTable-0.1.0-linux-x86_64.AppImage` | Portable package for desktop distributions. |
-| Debian / Ubuntu / Linux Mint, x64 | `CraftingTable-0.1.0-linux-amd64.deb` | Install with the system package manager. |
-| Fedora, x64 | `CraftingTable-0.1.0-linux-x86_64.rpm` | RPM package. |
+| Windows 10 / 11, x64 | `CraftingTable-0.2.0-win-x64.exe` | Installer with a selectable installation folder. |
+| Windows 10 / 11, x64 | `CraftingTable-0.2.0-win-x64-portable.exe` | Run without installation. |
+| Linux, x64 | `CraftingTable-0.2.0-linux-x86_64.AppImage` | Portable package for desktop distributions. |
+| Debian / Ubuntu / Linux Mint, x64 | `CraftingTable-0.2.0-linux-amd64.deb` | Install with the system package manager. |
+| Fedora, x64 | `CraftingTable-0.2.0-linux-x86_64.rpm` | RPM package. |
 
 Linux packages target modern glibc desktop systems. Ubuntu 22.04/24.04, Debian 12 and Linux Mint 21/22 are the intended baseline families; see the release notes for the actual validation environment. This release provides x64 packages. ARM64 and Alpine/musl require separate builds.
 
 ```bash
 # AppImage: mark executable, then launch as a regular desktop user.
-chmod +x CraftingTable-0.1.0-linux-x86_64.AppImage
-./CraftingTable-0.1.0-linux-x86_64.AppImage
+chmod +x CraftingTable-0.2.0-linux-x86_64.AppImage
+./CraftingTable-0.2.0-linux-x86_64.AppImage
 
 # Ubuntu / Debian / Mint
-sudo apt install ./CraftingTable-0.1.0-linux-amd64.deb
+sudo apt install ./CraftingTable-0.2.0-linux-amd64.deb
 
 # Fedora
-sudo dnf install ./CraftingTable-0.1.0-linux-x86_64.rpm
+sudo dnf install ./CraftingTable-0.2.0-linux-x86_64.rpm
 ```
 
-If FUSE is unavailable, use `./CraftingTable-0.1.0-linux-x86_64.AppImage --appimage-extract-and-run`, or install the native package. Launch the app as your normal desktop user. Downloads include `SHA256SUMS.txt` for integrity checks. Windows packages are unsigned; the operating system may ask you to confirm the publisher.
+If FUSE is unavailable, use `./CraftingTable-0.2.0-linux-x86_64.AppImage --appimage-extract-and-run`, or install the native package. Launch the app as your normal desktop user. Downloads include `SHA256SUMS.txt` for integrity checks. Windows packages are unsigned; the operating system may ask you to confirm the publisher.
 
 Imported and pasted images receive distinct numbered filenames. Right-click an asset in the library and choose **Show in file manager** to reveal the project copy.
 
@@ -71,17 +71,19 @@ Imported and pasted images receive distinct numbered filenames. Right-click an a
 2. Import media or drag files from your file manager onto the canvas.
 3. Select a media track, position the playhead and press **M** to add a marker. Drag from a selected marker’s connection handle to create or connect an annotation.
 4. Switch to **Notes** to write an outline, collect references or review a transcript. Double-click a note on the canvas to open it.
-5. Double-click a text box, shape or media annotation to edit its text. Click **Done**, press **Ctrl+Enter** or click outside to save; **Esc** cancels the edit. Use the **Edit** panel for appearance and geometry, including **Lock standard proportions** for regular shapes.
+5. Double-click a text box, shape or media annotation to edit its text. Click **Done**, press **Ctrl+Enter** or click outside to save; **Esc** cancels the edit. Use the **Edit** panel for appearance and geometry, including **Lock standard proportions** for regular shapes. Drag yellow adjustment handles to change corner rounding, callout pointers, slanted edges or block-arrow proportions; the same values are editable in the inspector and support undo. The Text tab switches between horizontal writing and vertical columns flowing from right to left.
 
-Press **Ctrl+V** on the canvas to paste text or images. Text creates a 320px-wide box with no fill or border and grows vertically with its contents. Images also appear in the asset library and are saved under the project’s `assets/` directory. Canvas text converts Markdown into editable formatting, including headings, emphasis, lists, tasks, quotes, code and tables. Shape text is centered by default and can extend above and below the shape without resizing it. The editing hint disappears during input. Switching themes immediately adapts existing text, fills and lines.
+Press **Ctrl+V** on the canvas to paste text or images. Text creates a 320px-wide box with no fill or border and grows vertically with its contents. Images also appear in the asset library and are saved under the project’s `assets/` directory. Canvas text converts Markdown into editable formatting, including `**bold**` directly after Chinese text, headings, emphasis, lists, tasks, quotes, code and tables. Shape text is centered by default and can extend above and below the shape without resizing it. The editing hint disappears during input. Switching themes immediately adapts existing text, fills and lines.
 
-Select at least two images or image stacks, right-click and choose **Stack images**. Existing stacks can be merged with more images or other stacks. Click the stack’s view label or double-click it to browse with a folding spread effect in a larger window, fitted to each image’s proportions. Use the wheel, toolbar buttons or **+ / −** to zoom from 50% to 500% of the fitted size. Drag a zoomed image to inspect details; **0** or **Fit to window** resets the view. At the fitted size, drag to turn pages. Arrow keys, navigation buttons and the thumbnail grid also change images and reset the zoom. Drag thumbnails in the grid to reorder images; the first image is the cover. Release to save, press Esc to cancel, or focus a thumbnail and use **Alt + arrow keys**. Locked stacks can only be viewed. Add a separate caption below each image; captions remain visible while browsing and are saved with the project. Choose **Unstack images** to restore the images with their captions, crops and connections. **Ctrl+Z** undoes reordering, stacking, merging or unstacking in one step. Project undo also works inside the viewer; caption fields retain text undo. Each image folds at its own fitted dimensions without adopting the next image’s aspect ratio or showing a white paper background.
+Select at least two images or image stacks, right-click and choose **Stack images**. Existing stacks can be merged with more images or other stacks. Click the stack’s image-count button or double-click it to browse with a folding spread effect in a larger window, fitted to each image’s proportions. Use the wheel, toolbar buttons or **+ / −** to zoom from 50% to 500% of the fitted size. Drag a zoomed image to inspect details; **0** or **Fit to window** resets the view. At the fitted size, drag to turn pages. **Ctrl + arrow keys**, arrow keys, buttons on the image’s left and right sides, and the thumbnail grid change images and reset the zoom. Drag to a gap between thumbnails to insert an image at the highlighted position; the first image is the cover. Release to save, press Esc to cancel, or focus a thumbnail and use **Alt + arrow keys**. In the spread view, Alt + arrow keys reorder the current image even when a toolbar button has focus. Locked stacks can only be viewed. Add a separate caption below each image; captions remain visible while browsing and are saved with the project. Choose **Unstack images** to restore the images with their captions, crops and connections. **Ctrl+Z** undoes reordering, stacking, merging or unstacking in one step. Project undo also works inside the viewer; caption fields retain text undo. Each image folds at its own fitted dimensions without adopting the next image’s aspect ratio or showing a white paper background.
 
-Double-click **Arrow**, **Brush** or **Text** to keep using the tool; a pin marks this state. Press **Esc** or select another tool to exit. With persistent Text, click or drag on the canvas to place a text box, finish editing, then place another. **Shift+Enter** on a focused tool button provides the same action. Single clicks retain their behavior: Arrow returns to Select after drawing, Text creates one box, and Brush draws continuously. Selection uses a dashed outline and four square resize handles with a constant screen size. Drag any corner to resize. Selected arrows expose two independently draggable endpoints: drop on an object to connect or on empty space for a free endpoint. Release to save, Ctrl+Z to undo, or Esc to cancel.
+Double-click **Arrow**, **Brush** or **Text** to keep using the tool; a pin marks this state. Press **Esc** or select another tool to exit. With persistent Text, click or drag on the canvas to place a text box, finish editing, then place another. **Shift+Enter** on a focused tool button provides the same action. A single click selects a tool. Double-click a shape or Text to place one object, or drag it onto the canvas. Text stays active after double-click placement; Arrow returns to Select after a single drawing, and Brush draws continuously. Double-click or drag library items to place them. Selection uses a dashed outline and four square resize handles with a constant screen size. Drag any corner to resize. Drag an arrow as a whole, or box-select it with objects to move, copy or delete them together. Arrows and objects share a translucent drag preview: originals stay in place until release commits the move. Shapes, text boxes, images, stacks and audio expose four round attachment points when selected. Drag from a point to create an arrow, or use the Arrow tool to attach an endpoint; connections follow movement, rotation and resizing. Nearby endpoints snap onto attachment points with a highlighted double ring. A slightly wider release radius prevents jitter; drawing arrows and editing endpoints share this feedback. Moving an arrow alone detaches endpoints from objects outside the moving selection. Selected arrows expose two independently draggable endpoints: drop on an object to connect or on empty space for a free endpoint. Release to save, Ctrl+Z to undo, or Esc to cancel.
 
 Right-click a canvas object to delete, cut, copy, paste, duplicate, copy as an image/SVG, group, lock, change stacking order or edit its style. Image menus open cropping; note cards open their content. Object information, external links and custom connection points are editable from the same menu. Default styles are stored locally by object type and apply to newly created objects. Right-click empty space for paste, select all, undo and redo.
 
 Notes and canvas text share a context menu for formatting, paragraphs, links, lists, tables and plain-text paste. Notes also provide search, images, annotations and moving selected content to another note. The top-bar Undo restores both notes together after a move. Use arrow keys to navigate menus, **Shift+F10** to open them and **Esc** to return to editing.
+
+The Notes, Assets and Canvas cards inside a project folder open their corresponding workspace directly. The theme picker shows complete names; the Hello World splash uses a thicker animated outline in the current theme color.
 
 | Action | Shortcut |
 | --- | --- |
@@ -97,7 +99,7 @@ Notes and canvas text share a context menu for formatting, paragraphs, links, li
 | Edit link; paste plain text | Text Ctrl+K; Ctrl+Shift+V |
 | Undo / redo | Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z |
 
-Drag gestures show a preview and commit on release; right-click or **Esc** cancels. **Ctrl+S** saves, **Ctrl+Z** undoes, and save status appears beside the project name. Panel sizes, favorites and theme choices are stored on your device.
+Drag gestures show a preview and commit on release; right-click or **Esc** cancels. **Ctrl+S** saves, **Ctrl+Z** undoes, and save status appears beside the project name. Double-click Tools, Library or Edit at the top of the sidebar to fill the sidebar with that panel; Restore brings back the split layout. **Shift+Enter** on a focused view button performs the same action. Close Settings with its close button, **Esc** or a click outside. Panel sizes, favorites and theme choices are stored on your device. The dark canvas uses clearer grid lines.
 
 Supported imports include TXT, MD, PNG, JPEG, WebP, GIF, BMP, MP3, WAV, M4A, AAC, OGG, FLAC, MP4, MOV, MKV and WebM. Playback depends on the file’s codec; importing a container does not guarantee that every codec inside it can play.
 
@@ -131,6 +133,7 @@ On PowerShell, use `npm.cmd` if the execution policy blocks `npm.ps1`. `dev` ope
 | `npm run test:unit` | Type-check and run unit tests. |
 | `npm run smoke` | Exercise the actual desktop app, project files, media and recovery. |
 | `npm run verify` | Run unit, tooling and Electron end-to-end checks. |
+| `node scripts/visual/preview-canvas-controls.mjs` | After building, capture image counts, settings, vertical text, adjustment handles and insertion sorting in light/dark themes at 100%/150%; use `--baseline` before changes. |
 | `npm run profile:performance -- sample` | Profile history memory, layout/color costs and wheel frame times with 300 rich-text objects; results and screenshots go to `test-results/performance/`. |
 | `npm run visual:release` | Reproduce media stability, proportion-lock, icon and splash checks at two scales and themes. |
 | `npm run dist:win` | Build Windows installer and portable EXE on Windows. |

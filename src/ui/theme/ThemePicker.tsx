@@ -62,14 +62,17 @@ export function ThemePicker({ onClose }: { onClose(): void }) {
         {allThemes.map(theme => {
           const tokens = theme[mode].tokens;
           const active = theme.id === activeThemeId;
-          return <button key={theme.id} className={`theme-card${active ? ' active' : ''}`} aria-pressed={active} onClick={() => setTheme(theme.id)}>
+          return <div key={theme.id} className={`theme-card${active ? ' active' : ''}`}>
+            <button className="theme-select" aria-pressed={active} onClick={() => setTheme(theme.id)}>
             <ThemePreview theme={theme} mode={mode} />
             <div className="theme-card-meta">
               <b>{theme.name}</b>
+            </div></button>
+            <div className="theme-card-footer">
               <span className="theme-swatches">{[tokens.primary, tokens.accent, tokens.secondary, tokens.foreground, tokens.border].map((color, index) => <i key={index} style={{ background: colorToHex(color) }} />)}</span>
               <button className="theme-fav" aria-label={t('收藏', 'Favorite')} aria-pressed={favorites.includes(theme.id)} onClick={event => { event.stopPropagation(); toggleFavorite(theme.id); }}>{favorites.includes(theme.id) ? '★' : '☆'}</button>
             </div>
-          </button>;
+          </div>;
         })}
       </div>
     </div>

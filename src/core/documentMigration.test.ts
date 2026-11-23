@@ -43,7 +43,7 @@ describe('项目格式迁移', () => {
     const { notes: _notes, ...legacy } = { ...source, schemaVersion: 1 as const };
     const result = readProjectDocument(legacy);
     expect(result.migrated).toBe(true);
-    expect(result.document).toMatchObject({ schemaVersion: 4, assets: source.assets, objects: source.objects, markers: source.markers, connections: source.connections, camera: source.camera, notes: [] });
+    expect(result.document).toMatchObject({ schemaVersion: 5, assets: source.assets, objects: source.objects, markers: source.markers, connections: source.connections, camera: source.camera, notes: [] });
   });
 
   it('带分块笔记的历史项目转为单一正文且保留缩略图关系', () => {

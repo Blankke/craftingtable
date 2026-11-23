@@ -16,6 +16,8 @@ export function CanvasObjectMenu({ target, editor, close, select, focus, editTex
   target: CanvasMenuTarget | null; editor: Editor; close(): void; select(ids: string[]): void; focus(): void; editText(id: string): void; inspect(tab?: string): void; openStack(id: string): void; openNote(id: string): void; connect(): void; exportGraphic(objects: CanvasObject[], format: 'png' | 'svg'): Promise<void>;
 }) {
   const { t } = useLanguage();
+  const setSelection = useInteractionStore(state => state.setSelection);
+  const duplicate = () => { const pasted = pasteCanvasSelection(editor, copyCanvasSelection(editor, ids, connections)); setSelection(pasted.objects, pasted.connections); };
   const [dialog, setDialog] = useState<{ title: string; fields: CommandField[]; submit(values: Record<string, string>): void } | null>(null);
   const ids = target ? [...editor.expandObjectIds(target.ids)] : [], objects = editor.document.objects.filter(object => ids.includes(object.id));
   const object = objects[0], locked = objects.some(object => object.locked), connections = target?.connections ?? [];
@@ -27,11 +29,11 @@ export function CanvasObjectMenu({ target, editor, close, select, focus, editTex
     ...([{ id: 'left', label: t('左对齐', 'Align left'), icon: <AlignLeft/>, shortcut: 'Ctrl+Shift+L' }, { id: 'center', label: t('居中对齐', 'Align center'), icon: <AlignCenter/>, shortcut: 'Ctrl+Shift+E' }, { id: 'right', label: t('右对齐', 'Align right'), icon: <AlignRight/>, shortcut: 'Ctrl+Shift+R' }] as const).map((item, index) => ({ ...item, separator: index === 0, run: () => editor.formatObjects(ids, item.id) }))
   ];
   const items: MenuItem[] = objects.length ? [
-    { id: 'delete', label: t('删除', 'Delete'), icon: <Trash2/>, shortcut: 'Delete', danger: true, disabled: locked, run: () => { editor.deleteObjects(ids); select([]); } },
+    { id: 'delete', label: t('删除', 'Delete'), icon: <Trash2/>, shortcut: 'Delete', danger: true, disabled: locked, run: () => { editor.deleteObjects(ids, connections); select([]); } },
     { id: 'cut', label: t('剪切', 'Cut'), icon: <Scissors/>, shortcut: 'Ctrl+X', separator: true, disabled: locked, run: () => clip('cut') },
     { id: 'copy', label: t('复制', 'Copy'), icon: <Copy/>, shortcut: 'Ctrl+C', run: () => clip('copy') },
     { id: 'paste', label: t('粘贴', 'Paste'), icon: <ClipboardPaste/>, shortcut: 'Ctrl+V', run: () => clip('paste') },
-    { id: 'duplicate', label: t('创建副本', 'Duplicate'), icon: <CopyPlus/>, shortcut: 'Ctrl+D', run: () => select(editor.duplicateObjects(ids)) },
+    { id: 'duplicate', label: t('创建副本', 'Duplicate'), icon: <CopyPlus/>, shortcut: 'Ctrl+D', run: duplicate },
     { id: 'png', label: t('复制为图像', 'Copy as image'), icon: <Image/>, run: () => run(() => exportGraphic(objects, 'png')) },
     { id: 'svg', label: t('复制为 SVG', 'Copy as SVG'), icon: <FileCode2/>, run: () => run(() => exportGraphic(objects, 'svg')) },
     { id: 'group', label: t('组合', 'Group'), icon: <Group/>, shortcut: 'Ctrl+G', separator: true, disabled: locked || objects.length < 2, run: () => editor.group(ids) },
@@ -67,7 +69,7 @@ export function CanvasObjectMenu({ target, editor, close, select, focus, editTex
     { id: 'style', label: t('编辑样式…', 'Edit style…'), icon: <Paintbrush/>, run: inspect }
   ] : [
     { id: 'paste', label: t('粘贴', 'Paste'), icon: <ClipboardPaste/>, shortcut: 'Ctrl+V', run: () => clip('paste') },
-    { id: 'all', label: t('全选', 'Select all'), icon: <MousePointer2/>, shortcut: 'Ctrl+A', run: () => select(editor.document.objects.map(object => object.id)) },
+    { id: 'all', label: t('全选', 'Select all'), icon: <MousePointer2/>, shortcut: 'Ctrl+A', run: () => setSelection(editor.document.objects.map(object => object.id), editor.document.connections.map(connection => connection.id)) },
     { id: 'undo', label: t('撤销', 'Undo'), icon: <Undo2/>, shortcut: 'Ctrl+Z', separator: true, disabled: !editor.canUndo, run: () => editor.undo() },
     { id: 'redo', label: t('重做', 'Redo'), icon: <Redo2/>, shortcut: 'Ctrl+Y', disabled: !editor.canRedo, run: () => editor.redo() }
   ];

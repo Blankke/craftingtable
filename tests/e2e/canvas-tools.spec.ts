@@ -101,12 +101,13 @@ for (const scale of [1, 1.5]) for (const theme of ['light', 'dark']) test(`工�
     await expect(tool('画笔')).toHaveAttribute('data-persistent', 'true');
     await expect.poll(async () => (await saved()).objects.filter(object => object.kind === 'stroke').length).toBe(4);
     await tool('文字').click();
-    await expect.poll(async () => (await saved()).objects.filter(object => object.kind === 'text').length).toBe(1);
-    await expect(tool('选择')).toHaveAttribute('aria-pressed', 'true');
-    // 双击只激活工具，不应把两次 click 当成两个新对象。
-    await tool('文字').dblclick({ delay: 180 }); await page.waitForTimeout(550);
+    await page.waitForTimeout(550);
+    expect((await saved()).objects.filter(object => object.kind === 'text')).toHaveLength(0);
+    await expect(tool('文字')).toHaveAttribute('aria-pressed', 'true');
+    // 双击放置一个文本框并进入持续工具，两次 click 不重复创建。
+    await tool('文字').dblclick({ delay: 180 });
     await expect(tool('文字')).toHaveAttribute('data-persistent', 'true');
-    expect((await saved()).objects.filter(object => object.kind === 'text')).toHaveLength(1);
+    await expect.poll(async () => (await saved()).objects.filter(object => object.kind === 'text').length).toBe(1);
     const input = page.getByLabel('编辑画布文字', { exact: true });
     await page.mouse.click(canvas.x + 150, canvas.y + 250);
     await expect(input).toBeFocused(); await input.fill('开场镜头'); await input.press('Control+Enter');

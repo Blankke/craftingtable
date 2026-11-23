@@ -4,7 +4,7 @@ import { canvasTextFromPlainText, emptyCanvasText } from './canvasText';
 import { legacyNoteSchema, migrateLegacyNote, noteAnnotationIds, noteAssetIds, noteSchema } from './note';
 
 // 所有时间均为源素材的整数微秒，路径均相对项目目录。
-export const PROJECT_SCHEMA_VERSION = 4;
+export const PROJECT_SCHEMA_VERSION = 5;
 export const pointSchema = z.object({ x: z.number().finite(), y: z.number().finite() });
 export const assetSchema = z.object({
   id: z.string().uuid(), name: z.string(), path: z.string(),
@@ -21,11 +21,14 @@ export const visualStyleSchema = z.object({
   perimeter: z.number().min(0).max(100), opacity: z.number().min(0).max(1),
   fontFamily: z.string(), bold: z.boolean(), italic: z.boolean(), underline: z.boolean(), verticalAlign: z.enum(['top', 'middle', 'bottom'])
 });
+// 形状调节点和书写方向随对象保存；所有渲染与导出使用同一组归一化参数。
+export const shapeAdjustmentSchema = z.object({ radius: z.number().min(0).max(.5).optional(), tailX: z.number().min(-1).max(2).optional(), tailY: z.number().min(-1).max(2).optional(), inset: z.number().min(0).max(.45).optional(), shaft: z.number().min(.1).max(.9).optional(), head: z.number().min(.1).max(.9).optional() });
+const writingMode = z.enum(['horizontal-tb', 'vertical-rl']).optional();
 const base = { id: z.string().uuid(), x: z.number().finite(), y: z.number().finite(), width: z.number().positive(), height: z.number().positive(), rotation: z.number().finite().optional(), groupId: z.string().uuid().nullable(), style: visualStyleSchema.optional(), locked: z.boolean().optional(), name: z.string().max(200).optional(), description: z.string().max(10_000).optional(), href: z.string().max(4096).optional(), connectionPoints: z.array(z.object({ id: z.string().uuid(), x: z.number().min(0).max(1), y: z.number().min(0).max(1) })).max(32).optional() };
 const imageObjectSchema = z.object({ ...base, kind: z.literal('image'), assetId: z.string().uuid(), caption: z.string().optional(), aspectLocked: z.boolean().optional(), crop: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), width: z.number().positive().max(1), height: z.number().positive().max(1) }).refine(crop => crop.x + crop.width <= 1.000001 && crop.y + crop.height <= 1.000001, '裁剪区域超出原图').optional() });
 export const objectSchema = z.discriminatedUnion('kind', [
-  z.object({ ...base, kind: z.literal('text'), text: richTextDocumentSchema, fontSize: z.number().positive(), color: z.string(), align: z.enum(['left', 'center', 'right']), assetId: z.string().uuid().optional() }),
-  z.object({ ...base, kind: z.enum(shapeKinds), aspectLocked: z.boolean().optional(), fill: z.string(), stroke: z.string(), text: richTextDocumentSchema.optional(), fontSize: z.number().positive().optional(), color: z.string().optional(), align: z.enum(['left', 'center', 'right']).optional() }),
+  z.object({ ...base, kind: z.literal('text'), text: richTextDocumentSchema, fontSize: z.number().positive(), color: z.string(), align: z.enum(['left', 'center', 'right']), writingMode, assetId: z.string().uuid().optional() }),
+  z.object({ ...base, kind: z.enum(shapeKinds), adjustments: shapeAdjustmentSchema.optional(), aspectLocked: z.boolean().optional(), fill: z.string(), stroke: z.string(), text: richTextDocumentSchema.optional(), fontSize: z.number().positive().optional(), color: z.string().optional(), align: z.enum(['left', 'center', 'right']).optional(), writingMode }),
   imageObjectSchema,
   z.object({ ...base, kind: z.literal('media'), assetId: z.string().uuid(), inUs: z.number().int().nonnegative(), outUs: z.number().int().nonnegative(), pixelsPerSecond: z.number().positive(), color: z.string().optional(), autoColor: z.boolean().optional() }),
   z.object({ ...base, kind: z.literal('note'), noteId: z.string().uuid() }),
@@ -33,9 +36,11 @@ export const objectSchema = z.discriminatedUnion('kind', [
   // 叠图保留每张原图的身份、相对位置、裁剪与备注，收起后仍可还原和连接。
   z.object({ ...base, kind: z.literal('imageStack'), images: z.array(imageObjectSchema).min(2) })
 ]);
+// 标准附着点由对象局部坐标定义，旋转、缩放和媒体时间宽度变化后自动跟随。
+export const DEFAULT_CONNECTION_PORTS = [{ id: 'n', x: .5, y: 0 }, { id: 'e', x: 1, y: .5 }, { id: 's', x: .5, y: 1 }, { id: 'w', x: 0, y: .5 }] as const;
 export const anchorSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('free'), point: pointSchema }),
-  z.object({ kind: z.literal('object'), objectId: z.string().uuid(), pointId: z.string().uuid().optional() }),
+  z.object({ kind: z.literal('object'), objectId: z.string().uuid(), pointId: z.string().uuid().optional(), port: z.enum(['n', 'e', 's', 'w']).optional() }),
   z.object({ kind: z.literal('time'), markerId: z.string().uuid() })
 ]);
 // 连接线样式：默认虚线、实心箭头；可选起止头部与线型（对齐 draw.io）。
@@ -85,6 +90,12 @@ export function readProjectDocument(raw: unknown): { document: ProjectDocument; 
     validateRelations(document);
     return { document, migrated: false };
   }
+  if (version === 4) {
+    // 旧运行时会丢弃新增几何与书写方向字段，升级格式以让进程版本核对阻止这种静默丢失。
+    const previous = documentSchema.extend({ schemaVersion: z.literal(4) }).parse(raw);
+    const document = documentSchema.parse({ ...previous, schemaVersion: PROJECT_SCHEMA_VERSION });
+    validateRelations(document); return { document, migrated: true };
+  }
   if (![1, 2, 3].includes(version)) throw Error(`不支持的项目格式版本：${version}`);
   const legacy = version === 3 ? plainTextDocumentSchema.parse(raw) : legacyDocumentSchema.parse(raw);
   const objects = legacy.objects.map(object => {
@@ -115,7 +126,7 @@ export function resolveAnchor(document: ProjectDocument, anchor: Anchor, towards
     if (!object) return null;
     const halfWidth = (object.kind === 'media' ? mediaWidth(object) : object.width) / 2, halfHeight = object.height / 2;
     const center = { x: object.x + halfWidth, y: object.y + halfHeight };
-    const point = object.connectionPoints?.find(point => point.id === anchor.pointId);
+    const point = object.connectionPoints?.find(point => point.id === anchor.pointId) ?? DEFAULT_CONNECTION_PORTS.find(point => point.id === anchor.port);
     if (point) {
       const x = (point.x * 2 - 1) * halfWidth, y = (point.y * 2 - 1) * halfHeight, angle = (object.rotation ?? 0) * Math.PI / 180;
       return { x: center.x + x * Math.cos(angle) - y * Math.sin(angle), y: center.y + x * Math.sin(angle) + y * Math.cos(angle) };

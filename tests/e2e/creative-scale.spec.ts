@@ -129,7 +129,7 @@ test('实际创作规模项目能打开、显示素材并保存新增对象', as
     await expect(page.locator('.media-row').first()).toContainText('1.6s / 1.6s');
     await expect.poll(async () => page.locator('audio').evaluate((element: HTMLAudioElement) => element.currentTime)).toBeGreaterThan(1.55);
     await expect(page.locator('audio')).toHaveJSProperty('paused', true);
-    await page.getByRole('button', { name: '矩形', exact: true }).click();
+    await page.getByRole('button', { name: '矩形', exact: true }).dblclick();
     await page.locator('header button').first().click();
     await expect(page.locator('.home')).toBeVisible();
     const saved = JSON.parse(await readFile(path.join(seeded.folder, 'project.json'), 'utf8')) as ProjectDocument;

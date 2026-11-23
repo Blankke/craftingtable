@@ -335,7 +335,7 @@ else app.whenReady().then(() => {
         projectName.dispatchEvent(new Event('input', { bubbles: true }));
         projectName.closest('form').querySelector('button[type=submit]').click();
         await until(() => document.querySelector('.tool-grid'));
-        document.querySelector('.shape-group .tool-tile').click();
+        document.querySelector('.shape-group .tool-tile').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
         const folder = (await window.workbench.listProjects()).find(item => item.name.startsWith(name))?.folder;
         if (!folder) throw Error('界面创建项目失败');
         const reopened = await until(async () => { const snapshot = await window.workbench.openProject(folder);
@@ -455,6 +455,7 @@ else app.whenReady().then(() => {
         window.webContents.sendInputEvent({ type: 'mouseMove', x: 130, y: 284 });
         await new Promise(resolve => setTimeout(resolve, 150));
         // 隐藏窗口先强制绘制一帧，确保新增连接柄的命中图已刷新。
+        await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
         await window.webContents.capturePage();
         window.webContents.sendInputEvent({ type: 'mouseDown', x: 130, y: 284, button: 'left', clickCount: 1 });
         await new Promise(resolve => setTimeout(resolve, 80));
@@ -746,7 +747,7 @@ else app.whenReady().then(() => {
       });
       if (!unsupportedStored) throw Error('不支持媒体的状态未保留在素材库和项目中');
       const beforeRestart = await call({ method: 'open', folder: result.folder }) as { objects: unknown[] };
-      await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(item => item.textContent === '矩形').click()`);
+      await window.webContents.executeJavaScript(`[...document.querySelectorAll('.tool-grid button')].find(item => item.textContent === '矩形').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
       worker.kill();
       const resubmitted = await new Promise<boolean>(resolve => {
         let attempts = 0;

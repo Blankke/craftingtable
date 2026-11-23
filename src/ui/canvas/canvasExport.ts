@@ -2,7 +2,7 @@
 import Konva from 'konva';
 import type { CanvasObject } from '../../core/document';
 import { styleOf } from '../../core/appearance';
-import { shapePaths } from '../../core/shapeGeometry';
+import { shapePath, shapeRadius } from '../../core/shapeGeometry';
 import { escapeTextHtml } from '../../core/canvasText';
 import { canvasTextImageSource, canvasTextLayout, isTextObject } from './canvasTextLayout';
 
@@ -28,6 +28,7 @@ export async function copyCanvasGraphic(stage: Konva.Stage, objects: CanvasObjec
     if (format === 'svg') {
       const elements = copies.map(({ object, node }) => {
         const style = styleOf(object), w = object.width, h = object.height;
+        const path = shapePath(object.kind, 'adjustments' in object ? object.adjustments : undefined);
         if (!isTextObject(object) && object.kind !== 'stroke') {
           const box = node.getClientRect({ relativeTo: layer });
           return `<image x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" href="${node.toDataURL({ pixelRatio: 2 })}"/>`;
@@ -36,8 +37,8 @@ export async function copyCanvasGraphic(stage: Konva.Stage, objects: CanvasObjec
         const fill = gradient ? `url(#${id})` : style.fillEnabled ? style.fill : 'none';
         const stroke = style.strokeEnabled ? style.stroke : 'none', dash = style.dash === 'dashed' ? '8 5' : style.dash === 'dotted' ? '2 4' : '';
         const attrs = `fill="${escapeTextHtml(fill)}" stroke="${escapeTextHtml(stroke)}" stroke-width="${style.strokeWidth}" stroke-dasharray="${dash}" vector-effect="non-scaling-stroke"`;
-        const shape = object.kind === 'stroke' ? `<polyline points="${object.points.map(point => `${point.x - object.x},${point.y - object.y}`).join(' ')}" fill="none" stroke="${escapeTextHtml(object.style ? style.stroke : object.color)}" stroke-width="${object.style ? style.strokeWidth : object.strokeWidth}" stroke-linecap="round"/>` : object.kind === 'ellipse' ? `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" ${attrs}/>` : shapePaths[object.kind] ? `<path d="${shapePaths[object.kind]}" transform="scale(${w / 100} ${h / 100})" ${attrs}/>` : `<rect width="${w}" height="${h}" rx="${object.kind === 'roundedRectangle' ? Math.min(w, h) * .15 : 0}" ${attrs}/>`;
-        const text = isTextObject(object) ? (() => { const layout = canvasTextLayout(object); return `<image y="${layout.y}" width="${w}" height="${layout.height}" href="${escapeTextHtml(canvasTextImageSource(object, 1))}"/>`; })() : '';
+        const shape = object.kind === 'stroke' ? `<polyline points="${object.points.map(point => `${point.x - object.x},${point.y - object.y}`).join(' ')}" fill="none" stroke="${escapeTextHtml(object.style ? style.stroke : object.color)}" stroke-width="${object.style ? style.strokeWidth : object.strokeWidth}" stroke-linecap="round"/>` : object.kind === 'ellipse' ? `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" ${attrs}/>` : path ? `<path d="${path}" transform="scale(${w / 100} ${h / 100})" ${attrs}/>` : `<rect width="${w}" height="${h}" rx="${shapeRadius(object)}" ${attrs}/>`;
+        const text = isTextObject(object) ? (() => { const layout = canvasTextLayout(object); return `<image x="${layout.x}" y="${layout.y}" width="${layout.width}" height="${layout.height}" href="${escapeTextHtml(canvasTextImageSource(object, 1))}"/>`; })() : '';
         const defs = gradient ? `<defs><linearGradient id="${id}" x2="${style.gradientDirection === 'horizontal' ? '100%' : '0'}" y2="${style.gradientDirection === 'horizontal' ? '0' : '100%'}"><stop stop-color="${escapeTextHtml(style.fill)}"/><stop offset="1" stop-color="${escapeTextHtml(style.gradientColor)}"/></linearGradient></defs>` : '';
         return `${defs}<g transform="translate(${object.x} ${object.y}) rotate(${object.rotation ?? 0} ${w / 2} ${h / 2})" opacity="${style.opacity}">${shape}${text}</g>`;
       });

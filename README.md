@@ -6,7 +6,7 @@
 
 **把媒体、想法和笔记，放到同一张创作画布上。**
 
-[![版本](https://img.shields.io/badge/version-0.1.0-5268e8)](https://github.com/Blankke/craftingtable/releases/tag/v0.1)
+[![版本](https://img.shields.io/badge/version-0.2.0-5268e8)](https://github.com/Blankke/craftingtable/releases/tag/v0.2)
 [![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4)](#下载安装)
 [![Linux](https://img.shields.io/badge/Linux-x64-FCC624)](#下载安装)
 [![Electron](https://img.shields.io/badge/Electron-45-47848F)](https://www.electronjs.org/)
@@ -14,7 +14,7 @@
 
 **中文** | [English](README_EN.md)
 
-[下载应用](https://github.com/Blankke/craftingtable/releases/tag/v0.1) · [功能特色](#功能特色) · [快速上手](#快速上手) · [源码构建](#源码构建) · [问题反馈](https://github.com/Blankke/craftingtable/issues)
+[下载应用](https://github.com/Blankke/craftingtable/releases/tag/v0.2) · [功能特色](#功能特色) · [快速上手](#快速上手) · [源码构建](#源码构建) · [问题反馈](https://github.com/Blankke/craftingtable/issues)
 
 </div>
 
@@ -37,31 +37,31 @@ CraftingTable 是面向视频、播客、访谈和视觉研究的桌面创作工
 
 ## 下载安装
 
-前往 **[GitHub Releases](https://github.com/Blankke/craftingtable/releases/tag/v0.1)**，选择适合系统的安装包。
+前往 **[GitHub Releases](https://github.com/Blankke/craftingtable/releases/tag/v0.2)**，选择适合系统的安装包。
 
 | 系统 | 文件 | 使用方式 |
 | --- | --- | --- |
-| Windows 10 / 11，x64 | `CraftingTable-0.1.0-win-x64.exe` | 安装版，可选择安装目录。 |
-| Windows 10 / 11，x64 | `CraftingTable-0.1.0-win-x64-portable.exe` | 免安装版，直接运行。 |
-| Linux，x64 | `CraftingTable-0.1.0-linux-x86_64.AppImage` | 适用于常见桌面发行版的便携包。 |
-| Debian / Ubuntu / Linux Mint，x64 | `CraftingTable-0.1.0-linux-amd64.deb` | 使用系统包管理器安装。 |
-| Fedora，x64 | `CraftingTable-0.1.0-linux-x86_64.rpm` | RPM 安装包。 |
+| Windows 10 / 11，x64 | `CraftingTable-0.2.0-win-x64.exe` | 安装版，可选择安装目录。 |
+| Windows 10 / 11，x64 | `CraftingTable-0.2.0-win-x64-portable.exe` | 免安装版，直接运行。 |
+| Linux，x64 | `CraftingTable-0.2.0-linux-x86_64.AppImage` | 适用于常见桌面发行版的便携包。 |
+| Debian / Ubuntu / Linux Mint，x64 | `CraftingTable-0.2.0-linux-amd64.deb` | 使用系统包管理器安装。 |
+| Fedora，x64 | `CraftingTable-0.2.0-linux-x86_64.rpm` | RPM 安装包。 |
 
 Linux 面向使用 glibc 的现代桌面系统，以 Ubuntu 22.04/24.04、Debian 12、Linux Mint 21/22 等系统系列为兼容目标；具体实测环境见 Release 说明。本次提供 x64 产物，ARM64 与 Alpine/musl 需单独适配。
 
 ```bash
 # AppImage：增加执行权限后，以普通桌面用户运行。
-chmod +x CraftingTable-0.1.0-linux-x86_64.AppImage
-./CraftingTable-0.1.0-linux-x86_64.AppImage
+chmod +x CraftingTable-0.2.0-linux-x86_64.AppImage
+./CraftingTable-0.2.0-linux-x86_64.AppImage
 
 # Ubuntu / Debian / Mint
-sudo apt install ./CraftingTable-0.1.0-linux-amd64.deb
+sudo apt install ./CraftingTable-0.2.0-linux-amd64.deb
 
 # Fedora
-sudo dnf install ./CraftingTable-0.1.0-linux-x86_64.rpm
+sudo dnf install ./CraftingTable-0.2.0-linux-x86_64.rpm
 ```
 
-系统没有 FUSE 时，可使用 `./CraftingTable-0.1.0-linux-x86_64.AppImage --appimage-extract-and-run`，也可安装 DEB/RPM。请使用普通桌面用户启动应用。下载页附带 `SHA256SUMS.txt` 校验文件；Windows 包未配置代码签名证书，系统可能提示确认发布者。
+系统没有 FUSE 时，可使用 `./CraftingTable-0.2.0-linux-x86_64.AppImage --appimage-extract-and-run`，也可安装 DEB/RPM。请使用普通桌面用户启动应用。下载页附带 `SHA256SUMS.txt` 校验文件；Windows 包未配置代码签名证书，系统可能提示确认发布者。
 
 ## 快速上手
 
@@ -69,17 +69,19 @@ sudo dnf install ./CraftingTable-0.1.0-linux-x86_64.rpm
 2. 导入素材，或从文件管理器将媒体文件拖入画布。
 3. 选中媒体轨道、定位播放头，按 **M** 添加标记；选中标记后，从连接柄拖出文字批注或连接已有文字。
 4. 切换到“笔记”撰写提纲、整理资料或阅读转录文稿；双击画布上的笔记缩略图即可打开正文。
-5. 双击文本框、形状或媒体批注直接输入文字，点击“完成”、按 **Ctrl+Enter** 或点击外部保存，**Esc** 取消本次输入。在“编辑”面板修改样式、位置与尺寸；规则图形可开启“锁定标准比例”。
+5. 双击文本框、形状或媒体批注直接输入文字，点击“完成”、按 **Ctrl+Enter** 或点击外部保存，**Esc** 取消本次输入。在“编辑”面板修改样式、位置与尺寸；规则图形可开启“锁定标准比例”。圆角矩形、气泡引出角、斜边图形和单向块箭头显示黄色几何调节点，可像 PPT 一样直接拖动，或在“形状调整”中输入数值；一次拖动可一次撤销。
 
-在画布上按 **Ctrl+V** 可直接粘贴文字或图片。文字生成 320px 宽、无填充无边框的文本框，内容增加时自动增高；图片同时加入素材库并保存在项目 `assets/` 中。画布文字支持 Markdown 输入和粘贴，标题、粗斜体、列表、待办、引用、代码与表格转换为可编辑格式。形状文字默认居中，长文字向上下延伸，图形尺寸保持不变；“双击编辑文字”提示在输入时消失。切换明暗主题会立即适配已有元素的文字、填充和线条配色。
+在画布上按 **Ctrl+V** 可直接粘贴文字或图片。文字生成 320px 宽、无填充无边框的文本框，内容增加时自动增高；图片同时加入素材库并保存在项目 `assets/` 中。画布文字支持 Markdown 输入和粘贴，中文后直接输入 `**加粗内容**` 也可识别；标题、粗斜体、列表、待办、引用、代码与表格转换为可编辑格式。形状文字默认居中，长文字向上下延伸，图形尺寸保持不变；“双击编辑文字”提示在输入时消失。“文本”页的“书写方向”可切换横排与竖排；竖排从上到下、从右向左分列，保留富文本格式、编辑、导出与撤销。横排文本框随内容增高，竖排随列数增宽。切换明暗主题会立即适配已有元素的文字、填充和线条配色，深色画布使用更清晰的网格。
 
-多选至少两个图片或叠图后，右键选择“收起为叠图”，已有叠图可继续合并其他图片或叠图。点击叠图上的“查看”或双击，使用双页翻动效果浏览；当前图片按原比例适应大窗口。使用滚轮、右上角按钮或 **+ / −** 缩放（相对适应尺寸的 50%～500%），放大后拖动查看细节，按 **0** 或“适应窗口”复位。适应大小时可拖动翻页，方向键、翻页按钮和缩略图列表始终可切换图片，切换后自动适应新图。在缩略图列表中拖动图片可调整顺序，首张作为封面；松开保存，Esc 取消，也可聚焦缩略图后按 **Alt＋方向键** 排序。锁定的叠图只能查看。每张图片下方可添加独立备注，浏览时直接显示，并随项目保存。右键“拆开叠图”可还原图片，备注、裁剪和连线继续保留；**Ctrl+Z** 可一次撤销排序、收起、继续合并或拆开，备注修改也可撤销；浏览窗口内也可撤销项目操作，输入备注时保留文字撤销。每张图片按自身展示尺寸折叠，不在翻页时换成另一张的比例或铺上白色纸面。
+多选至少两个图片或叠图后，右键选择“收起为叠图”，已有叠图可继续合并其他图片或叠图。点击叠图上的图片数量按钮（如“3张”）或双击，使用双页翻动效果浏览；当前图片按原比例适应大窗口。使用滚轮、右上角按钮或 **+ / −** 缩放（相对适应尺寸的 50%～500%），放大后拖动查看细节，按 **0** 或“适应窗口”复位。适应大小时可拖动翻页，**Ctrl＋方向键**、方向键、图片左右两侧的翻页按钮和缩略图列表可切换图片，切换后自动适应新图。在缩略图列表中，把图片拖向两张图片之间的空隙即可插入排序，插入线标明松手后的位置，首张作为封面；松开保存，Esc 取消，也可聚焦缩略图后按 **Alt＋方向键** 排序；翻页视图中同样可用 Alt＋方向键调整当前图片的顺序，焦点位于工具按钮时也有效。锁定的叠图只能查看。每张图片下方可添加独立备注，浏览时直接显示，并随项目保存。右键“拆开叠图”可还原图片，备注、裁剪和连线继续保留；**Ctrl+Z** 可一次撤销排序、收起、继续合并或拆开，备注修改也可撤销；浏览窗口内也可撤销项目操作，输入备注时保留文字撤销。每张图片按自身展示尺寸折叠，不在翻页时换成另一张的比例或铺上白色纸面。
 
-双击工具栏的箭头、画笔或文字可持续使用，按钮显示图钉标记；按 **Esc** 或切换工具退出。持续文字工具支持在画布上点击或拖出文本框，输入完成后可继续放置；工具按钮聚焦时 **Shift+Enter** 也可启用持续使用。单击保留原有行为：箭头画完回到选择，文字创建一个文本框，画笔可连续绘制。画布选区使用固定屏幕尺寸的虚线和四角方点，缩小画布后仍可辨认；拖动任一角点可缩放对象。选中箭头后，可分别拖动起点和终点，放到对象上重新连接，放到空白处成为自由端点；松开后一次保存，Ctrl+Z 撤销，Esc 取消拖动。
+双击工具栏的箭头、画笔或文字可持续使用，按钮显示图钉标记；按 **Esc** 或切换工具退出。持续文字工具支持在画布上点击或拖出文本框，输入完成后可继续放置；工具按钮聚焦时 **Shift+Enter** 也可启用持续使用。单击工具只选择；双击形状或文字放置一个对象，也可拖到画布指定位置放置。文字双击放置后保留持续工具，箭头单次绘制后回到选择，画笔可连续绘制。素材库条目双击或拖动放入画布。画布选区使用固定屏幕尺寸的虚线和四角方点，缩小画布后仍可辨认；拖动任一角点可缩放对象。箭头支持整条拖动，也可与对象一起框选、移动、复制和删除；与普通对象共用虚影拖动，原件保留在原位，松手一次提交。选中图形、文本框、图片、叠图或音频后，四边显示圆形附着点：从点上拖出箭头，或使用箭头工具把端点拖到点上，即可建立随对象移动、旋转和缩放的连接。端点靠近附着点会磁吸到中心，并显示双环高亮；轻微移开仍保持吸附，移出范围后释放，新建箭头和编辑端点均使用相同反馈。单独拖动整条箭头时，与未移动对象的连接会变为自由端点。选中箭头后，可分别拖动起点和终点，放到对象上重新连接，放到空白处成为自由端点；松开后一次保存，Ctrl+Z 撤销，Esc 取消拖动。
 
 画布对象右键提供删除、剪切、复制、粘贴、副本、复制为图像／SVG、组合、锁定、层级移动和样式编辑；图片可直接打开裁剪，笔记卡片可打开正文。对象信息、外部链接和自定义连接点也可从菜单编辑。默认样式按对象类型保存在本机，应用于之后创建的同类对象。空白区域右键可全选、粘贴、撤销和重做。
 
 笔记与画布正文共用文字右键菜单，可设置格式、段落、链接、列表、表格及纯文本粘贴；笔记另有查找、图片、批注和移动选区到其他笔记。移动操作可通过顶栏撤销同时恢复两篇内容。方向键可操作菜单，**Shift+F10** 打开菜单，**Esc** 关闭并返回编辑区。
+
+首页文件夹中的“笔记”“素材”“画布”卡片可分别直达对应区域，素材入口展开素材库。主题选择窗口完整显示名称，Hello World 开屏使用当前主题主色和加粗描线动画。
 
 | 操作 | 快捷键 |
 | --- | --- |
@@ -95,7 +97,7 @@ sudo dnf install ./CraftingTable-0.1.0-linux-x86_64.rpm
 | 编辑链接；纯文本粘贴 | 正文 Ctrl+K；Ctrl+Shift+V |
 | 撤销／重做 | Ctrl+Z／Ctrl+Y 或 Ctrl+Shift+Z |
 
-拖放操作显示虚影，松开提交，右键或 **Esc** 取消。**Ctrl+S** 保存，**Ctrl+Z** 撤销，项目名称旁显示保存状态。面板大小、收藏与主题偏好保存在本机。
+拖放操作显示虚影，松开提交，右键或 **Esc** 取消。**Ctrl+S** 保存，**Ctrl+Z** 撤销，项目名称旁显示保存状态。双击侧栏顶部的“工具”“素材库”或“编辑”，该面板占满侧栏；点击还原按钮恢复分栏，聚焦按钮后 **Shift+Enter** 可执行相同操作。设置菜单可用右上角关闭按钮、**Esc** 或点击外部关闭。面板大小、收藏与主题偏好保存在本机。
 
 可导入 TXT、MD、PNG、JPEG、WebP、GIF、BMP、MP3、WAV、M4A、AAC、OGG、FLAC、MP4、MOV、MKV、WebM。实际播放取决于文件编码，同一容器中的不同编码可能有不同的播放支持情况。
 
@@ -130,6 +132,8 @@ PowerShell 的执行策略限制 `npm.ps1` 时，使用 `npm.cmd`。`dev` 启动
 | `npm run smoke` | 用实际桌面进程验证项目读写、媒体和恢复。 |
 | `npm run verify` | 单元测试、工程脚本测试及 Electron 端到端测试。 |
 | `npm run profile:performance -- sample` | 用 300 个富文本对象测量撤销历史内存、排版/配色耗时及滚轮帧耗时；结果与截图写入 `test-results/performance/`。 |
+| `node scripts/visual/preview-interactions.mjs` | 构建后复拍开屏、完整主题名称和混合比例折页，覆盖明暗与 100%/150%；`--baseline` 保存修改前场景。 |
+| `node scripts/visual/preview-canvas-controls.mjs` | 构建后复拍数量按钮、设置、竖排、调节点和插入排序；覆盖明暗与 100%/150%，`--baseline` 保存修改前场景。 |
 | `npm run visual:release` | 复现媒体稳定性、比例锁、图标及开屏验收，覆盖两种主题和缩放。 |
 | `npm run dist:win` | 在 Windows 构建安装版与便携版 EXE。 |
 | `npm run dist:linux` | 在 Linux 构建 AppImage、DEB、RPM；需要 `binutils`（ar）、`rpm`/`rpmbuild` 和 `xz-utils`。 |

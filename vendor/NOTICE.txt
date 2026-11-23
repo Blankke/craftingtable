@@ -29,3 +29,8 @@ Journal Spread Carousel — @kedhareswer / 21st.dev
 来源：https://21st.dev/@kedhareswer/components/journal-spread-carousel
 组件与内嵌手写字体来自用户提供的集成源码；字体拆分保存为 src/assets/fonts/journal-hand.woff2。
 保留双页折叠、景深、阴影与拖动翻页，接入项目本地图片、主题、逐图备注、缩略图列表与键盘操作。
+
+HeroUI v3 ToggleButton (small)
+Source: https://github.com/heroui-inc/heroui/blob/v3/packages/styles/components/toggle-button.css
+Reference: https://21st.dev/@hero_ui/components/heroui-toggle-button
+License: Apache-2.0 (HeroUI-Apache-2.0.txt). Canvas StackCountButton adapts the official small size, rounded shape, hover and press feedback to Konva.

@@ -6,7 +6,7 @@ import { WorkbenchIcon, type WorkbenchIconName } from '../shared/WorkbenchIcon';
 import { Maximize2, Minimize2, X, PanelRightOpen, PanelRightClose } from 'lucide-react';
 import { IconButton, PanelResizeHandle } from '../shared/EditorControls';
 
-export function WorkspaceDock({ tools, library, inspector, autoOpenProperties, propertiesRequest = 0 }: { tools: ReactNode; library: ReactNode; inspector: ReactNode; autoOpenProperties?: boolean; propertiesRequest?: number }) {
+export function WorkspaceDock({ tools, library, inspector, autoOpenProperties, propertiesRequest = 0, libraryRequest = 0 }: { tools: ReactNode; library: ReactNode; inspector: ReactNode; autoOpenProperties?: boolean; propertiesRequest?: number; libraryRequest?: number }) {
   const initial = useRef(loadDockLayout(localStorage)).current;
   const [views, setViews] = useState<string[]>(['tools', 'library']);
   const [maximized, setMaximized] = useState<PanelId | null>(null);
@@ -17,7 +17,9 @@ export function WorkspaceDock({ tools, library, inspector, autoOpenProperties, p
   const panelsRef = useRef<HTMLElement | null>(null);
   const [availableHeight, setAvailableHeight] = useState(600);
   const toggle = (id: string) => { setCollapsed(false); setMaximized(null); setViews(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]); };
-  useEffect(() => { if (autoOpenProperties || propertiesRequest) { setCollapsed(false); setMaximized(null); setViews(current => current.includes('properties') ? current : [...current, 'properties']); } }, [autoOpenProperties, propertiesRequest]);
+  const maximize = (id: PanelId) => { setCollapsed(false); setViews(current => current.includes(id) ? current : [...current, id]); setMaximized(id); };
+  useEffect(() => { if (autoOpenProperties || propertiesRequest) { setCollapsed(false); setMaximized(current => current ? 'properties' : null); setViews(current => current.includes('properties') ? current : [...current, 'properties']); } }, [autoOpenProperties, propertiesRequest]);
+  useEffect(() => { if (libraryRequest) { setCollapsed(false); setMaximized('library'); setViews(current => current.includes('library') ? current : [...current, 'library']); } }, [libraryRequest]);
   useEffect(() => { const resize = () => setWindowWidth(window.innerWidth); addEventListener('resize', resize); return () => removeEventListener('resize', resize); }, []);
   useEffect(() => { try { localStorage.setItem(DOCK_STORAGE_KEY, JSON.stringify({ width, heights })); } catch { /* 存储不可用仅影响下次记忆 */ } }, [width, heights]);
   useEffect(() => {
@@ -51,7 +53,7 @@ export function WorkspaceDock({ tools, library, inspector, autoOpenProperties, p
   return <div className={`workspace-dock${collapsed ? ' is-collapsed' : ''}`} style={{ width: collapsed ? 42 : actualWidth }}>
     {!collapsed && <PanelResizeHandle className="dock-resizer" label="调整侧栏宽度" value={actualWidth} min={280} max={maxWidth} direction={-1} onChange={setWidth} onReset={() => setWidth(360)} />}
     <nav className="view-rail" aria-label="工作台视图">
-      {!collapsed && DOCK_PANELS.map(panel => <button key={panel.id} aria-label={`${panel.label}视图`} title={panel.label} aria-pressed={views.includes(panel.id)} onClick={() => toggle(panel.id)}><WorkbenchIcon name={panel.icon as WorkbenchIconName} size={15} /><span>{panel.label}</span></button>)}
+      {!collapsed && DOCK_PANELS.map(panel => <button key={panel.id} aria-label={`${panel.label}视图`} title={`${panel.label} · 双击展开整个侧栏`} aria-pressed={maximized ? maximized === panel.id : views.includes(panel.id)} onClick={event => { if (event.detail < 2) toggle(panel.id); }} onDoubleClick={() => maximize(panel.id)} onKeyDown={event => { if (event.shiftKey && event.key === 'Enter') { event.preventDefault(); maximize(panel.id); } }}><WorkbenchIcon name={panel.icon as WorkbenchIconName} size={15} /><span>{panel.label}</span></button>)}
       <IconButton icon={collapsed ? PanelRightOpen : PanelRightClose} label={collapsed ? '展开侧栏' : '收起侧栏'} onClick={() => setCollapsed(value => !value)} />
     </nav>
     {!collapsed && <aside ref={panelsRef} className="dock-panels">{visibleIds.map((id, index) => {

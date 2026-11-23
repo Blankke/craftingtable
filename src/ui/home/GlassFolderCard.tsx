@@ -7,7 +7,7 @@ import { useTheme } from '../theme/themeStore';
 export type FolderArt = 'aurora' | 'ember' | 'verdant' | 'dusk' | 'none';
 export interface FolderFile { name: string; meta?: string; art: FolderArt; image?: string }
 
-export function GlassFolderCard({ label, meta, files, onOpen, onReveal, onRename, onDelete }: { label: string; meta?: string; files: FolderFile[]; onOpen(): void; onReveal(): void; onRename(): void; onDelete(): void }) {
+export function GlassFolderCard({ label, meta, files, onOpen, onOpenSection, onReveal, onRename, onDelete }: { label: string; meta?: string; files: FolderFile[]; onOpen(): void; onOpenSection(index: number): void; onReveal(): void; onRename(): void; onDelete(): void }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { mode } = useTheme();
@@ -16,7 +16,7 @@ export function GlassFolderCard({ label, meta, files, onOpen, onReveal, onRename
   };
   const sheets: SourceFile[] = files.map(file => ({ name: file.name, meta: file.meta, art: file.image ? undefined : file.art === 'none' ? undefined : file.art, image: file.image }));
   return <div className="glass-folder-wrap" onMouseEnter={() => setExpanded(true)} onMouseLeave={() => setExpanded(false)} onFocusCapture={() => setExpanded(true)} onBlurCapture={closeOnBlur} onKeyDown={event => { if (event.key === 'Escape') setMenuOpen(false); }}>
-    <GlassFolder label={label} showLabelTitle={false} showLabelMeta={false} art={(files[0]?.art ?? 'none') as SourceArt} files={sheets} width={240} tone={mode} action="none" appear={false} open={expanded} onOpenChange={setExpanded} onActivate={onOpen} onFileSelect={onOpen} />
+    <GlassFolder label={label} showLabelTitle={false} showLabelMeta={false} art={(files[0]?.art ?? 'none') as SourceArt} files={sheets} width={240} tone={mode} action="none" appear={false} open={expanded} onOpenChange={setExpanded} onActivate={onOpen} onFileSelect={(_file, index) => onOpenSection(index)} />
     {/* 项目名移出玻璃前片，放在文件夹正下方；元数据继续下移并左对齐，完全避开预览图。 */}
     <button type="button" className="glass-folder-more" aria-label="项目菜单" aria-haspopup="menu" aria-expanded={menuOpen} onPointerDown={event => { event.stopPropagation(); }} onClick={event => { event.stopPropagation(); setMenuOpen(open => !open); }}>
       <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></svg>
