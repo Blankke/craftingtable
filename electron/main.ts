@@ -9,7 +9,8 @@ import { Readable } from 'node:stream';
 import { writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
-import { readProjectsRoot, saveProjectsRoot } from './projectSettings';
+import { readSettings, saveSettings } from './projectSettings';
+import { imageCompressionSchema } from '../src/core/imageCompression';
 import { developmentDirectories } from './devDirectories';
 import { mediaToolPath } from './mediaTools';
 
@@ -85,8 +86,17 @@ else app.whenReady().then(() => {
   const smoke = smokeMode;
   const settingsFile = path.join(app.getPath('userData'), 'settings.json');
   const defaultRoot = e2eRoot ? path.join(e2eRoot, 'projects') : smoke ? path.join(app.getPath('temp'), 'media-workbench-smoke') : devDirectories ? devDirectories.projects : path.join(app.getPath('documents'), '工作台');
-  let root = e2eRoot || smoke ? defaultRoot : readProjectsRoot(settingsFile, defaultRoot);
-  ipcMain.handle('settings:get', () => ({ projectsRoot: root, documentSchemaVersion: PROJECT_SCHEMA_VERSION }));
+  const settings = readSettings(settingsFile, defaultRoot);
+  let root = e2eRoot || smoke ? defaultRoot : settings.projectsRoot;
+  let imageCompression = settings.imageCompression;
+  ipcMain.handle('settings:get', () => ({ projectsRoot: root, imageCompression, documentSchemaVersion: PROJECT_SCHEMA_VERSION }));
+  ipcMain.handle('settings:image-compression', (event, input: unknown) => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw Error('无效的设置来源');
+    const selected = imageCompressionSchema.parse(input);
+    saveSettings(settingsFile, { projectsRoot: root, imageCompression: selected });
+    imageCompression = selected;
+    return { imageCompression };
+  });
   // 右键菜单复用系统剪贴板命令；固定白名单，不能执行任意主进程方法。
   ipcMain.handle('editing:clipboard', (event, command: unknown) => {
     const action = z.enum(['copy', 'cut', 'paste', 'pasteAndMatchStyle', 'selectAll']).parse(command);
@@ -116,11 +126,11 @@ else app.whenReady().then(() => {
     if (selection.canceled || !selection.filePaths[0]) return { projectsRoot: root };
     const selected = realpathSync(selection.filePaths[0]);
     if (!statSync(selected).isDirectory()) throw Error('项目位置必须是文件夹');
-    if (!e2eRoot && !smoke) saveProjectsRoot(settingsFile, selected);
+    if (!e2eRoot && !smoke) saveSettings(settingsFile, { projectsRoot: selected, imageCompression });
     root = selected;
     return { projectsRoot: root };
   });
-  protocol.handle('project-media', request => {
+  protocol.handle('project-media', async request => {
     const url = new URL(request.url);
     if (!projectFolder || !['asset', 'cache'].includes(url.hostname)) return new Response('Forbidden', { status: 403 });
     const relative = decodeURIComponent(url.pathname.slice(1));
@@ -133,6 +143,12 @@ else app.whenReady().then(() => {
       const rootInside = path.relative(realProject, realRoot);
       const inside = path.relative(realRoot, realFile);
       if (!rootInside || rootInside.startsWith(`..${path.sep}`) || rootInside === '..' || path.isAbsolute(rootInside) || !inside || inside.startsWith(`..${path.sep}`) || inside === '..' || path.isAbsolute(inside) || !statSync(realFile).isFile()) return new Response('Forbidden', { status: 403 });
+      if (url.searchParams.has('edge')) {
+        if (url.hostname !== 'asset') return new Response('Invalid preview', { status: 400 });
+        const preview = await call({ method: 'imagePreview', folder: realProject, source: realFile, edge: Number(url.searchParams.get('edge')) });
+        if (request.signal.aborted) return new Response(null, { status: 499 });
+        return net.fetch(pathToFileURL(String(preview)).toString());
+      }
       // Chromium 定位媒体时请求字节段。file: 的 net.fetch 不保证实现 Range，直接返回 206 与流。
       const range = request.headers.get('range');
       if (range) {
@@ -144,7 +160,7 @@ else app.whenReady().then(() => {
         const end = suffix ? size - 1 : match[2] ? Math.min(size - 1, Number(match[2])) : size - 1;
         if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || end < start) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
         const extension = path.extname(realFile).toLowerCase();
-        const contentType = ({ '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.webm': 'video/webm' } as Record<string, string>)[extension] || 'application/octet-stream';
+        const contentType = ({ '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.avif': 'image/avif', '.gif': 'image/gif', '.bmp': 'image/bmp', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.webm': 'video/webm' } as Record<string, string>)[extension] || 'application/octet-stream';
         const body = Readable.toWeb(createReadStream(realFile, { start, end })) as ReadableStream<Uint8Array>;
         return new Response(body, { status: 206, headers: { 'Content-Type': contentType, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${size}`, 'Accept-Ranges': 'bytes' } });
       }
@@ -216,7 +232,7 @@ else app.whenReady().then(() => {
   const importPaths = async (sources: string[]) => {
     if (!projectFolder) throw Error('未打开项目');
     const folder = projectFolder;
-    const results = await Promise.allSettled(sources.map(source => call({ method: 'import', folder, source })));
+    const results = await Promise.allSettled(sources.map(source => call({ method: 'import', folder, source, imageCompression })));
     return {
       assets: results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []),
       errors: results.flatMap((result, index) => result.status === 'rejected' ? [{ name: path.basename(sources[index]), message: String(result.reason instanceof Error ? result.reason.message : result.reason) }] : [])
@@ -229,11 +245,15 @@ else app.whenReady().then(() => {
   ipcMain.handle('assets:paste-image', (event, input: unknown) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !projectFolder) throw Error('无效的导入来源');
     const data = z.object({ name: z.string().max(255), bytes: z.instanceof(Uint8Array).refine(bytes => bytes.length > 0 && bytes.length <= 50 * 1024 * 1024) }).parse(input);
-    return call({ method: 'importImage', folder: projectFolder, ...data });
+    return call({ method: 'importImage', folder: projectFolder, ...data, imageCompression });
   });
   ipcMain.handle('assets:import', async () => {
     const selected = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'] });
     return selected.canceled ? { assets: [], errors: [] } : importPaths(selected.filePaths);
+  });
+  ipcMain.handle('assets:image-dimensions', (event, assetPath: unknown) => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !projectFolder) throw Error('未打开项目');
+    return call({ method: 'imageDimensions', folder: projectFolder, source: z.string().min(1).parse(assetPath) });
   });
   ipcMain.handle('assets:reveal', (event, assetPath: unknown) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !projectFolder) throw Error('未打开项目');
@@ -256,7 +276,7 @@ else app.whenReady().then(() => {
     const expectedKind = z.enum(['video', 'audio', 'image', 'text']).parse(kind);
     const selected = await dialog.showOpenDialog(window, { properties: ['openFile'] });
     if (selected.canceled || !selected.filePaths[0]) return null;
-    return call({ method: 'relink', folder: projectFolder, source: selected.filePaths[0], expectedKind });
+    return call({ method: 'relink', folder: projectFolder, source: selected.filePaths[0], expectedKind, imageCompression });
   });
   ipcMain.handle('assets:create-text', (_event, input: unknown) => {
     if (!projectFolder) throw Error('未打开项目');

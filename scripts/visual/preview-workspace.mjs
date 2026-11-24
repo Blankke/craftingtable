@@ -33,9 +33,10 @@ try {
     // 使用仓库真实图片验证渲染；协议响应与导入元数据仍为夹具，桌面磁盘导入由 Electron 用例验收。
     await page.route('project-media://asset/assets/**', route => route.fulfill({ path: 'tests/fixtures/sample.png', contentType: 'image/png' }));
     await page.addInitScript(() => {
-      let saved;
+      let saved, imageCompression = 'lossy';
       window.workbench = {
-        getSettings: async () => ({ projectsRoot: '/preview/projects', documentSchemaVersion: 4 }),
+        getSettings: async () => ({ projectsRoot: '/preview/projects', imageCompression, documentSchemaVersion: 5 }),
+        setImageCompression: async mode => ({ imageCompression: imageCompression = mode }),
         listProjects: async () => [],
         createProject: async () => '/preview/projects/workspace',
         saveProject: async document => { saved = structuredClone(document); window.__previewSnapshot = saved; return { revision: document.revision }; },
@@ -44,6 +45,7 @@ try {
         exportNote: async ({ markdown }) => { window.__exportedMarkdown = markdown; return true; },
         onTaskProgress: () => () => {}, onBackendRestart: () => () => {}, onFlushRequest: () => () => {},
         importAssets: async () => ({ assets: [], errors: [] }),
+        imageDimensions: async () => ({ width: 160, height: 90 }),
         importDroppedFiles: async files => ({ assets: files.map(file => ({ id: crypto.randomUUID(), name: file.name, path: `assets/${file.name}`, kind: 'image', status: 'ready' })), errors: [] }),
         cancelTask: async () => ({ cancelled: true })
       };

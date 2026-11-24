@@ -20,7 +20,7 @@ function AssetPreview({ asset }: { asset: ProjectDocument['assets'][number] }) {
     return () => { cancelled = true; void window.workbench!.cancelTask(taskId).catch(() => undefined); };
   }, [asset.id, asset.path, asset.durationUs, asset.kind, asset.status]);
   if (asset.status === 'missing') return <span className="asset-preview asset-preview-empty"><FileQuestion size={20} /></span>;
-  const source = mediaSource(asset.path);
+  const source = mediaSource(asset.path, 'asset', 128);
   if (asset.kind === 'image') return <img className="asset-preview" src={source} loading="lazy" alt="" />;
   if (asset.kind === 'video') return thumbnail ? <img className="asset-preview" src={mediaSource(thumbnail, 'cache')} alt="" /> : <span className="asset-preview asset-preview-empty"><Film size={20} /></span>;
   if (asset.kind === 'audio') return <span className="asset-preview asset-preview-empty"><Music2 size={20} /></span>;

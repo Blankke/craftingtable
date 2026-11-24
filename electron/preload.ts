@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 // 渲染器仅可调用列出的项目与素材操作，不能传入任意文件操作指令。
 contextBridge.exposeInMainWorld('workbench', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  setImageCompression: (mode: string) => ipcRenderer.invoke('settings:image-compression', mode),
   clipboardCommand: (command: string) => ipcRenderer.invoke('editing:clipboard', command),
   readClipboardText: () => ipcRenderer.invoke('editing:clipboard-text'),
   copyGraphic: (input: { png: string; svg?: string }) => ipcRenderer.invoke('editing:copy-graphic', input),
@@ -19,6 +20,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveProject: (document: unknown) => ipcRenderer.invoke('projects:save', document),
   leaveProject: () => ipcRenderer.invoke('projects:leave'),
   importAssets: () => ipcRenderer.invoke('assets:import'),
+  imageDimensions: (assetPath: string) => ipcRenderer.invoke('assets:image-dimensions', assetPath),
   revealAsset: (assetPath: string) => ipcRenderer.invoke('assets:reveal', assetPath),
   removeAsset: (assetPath: string) => ipcRenderer.invoke('assets:remove', assetPath),
   // 只在 preload 中解析真实拖入文件；磁盘绝对路径不回传给页面。

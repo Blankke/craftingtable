@@ -101,19 +101,25 @@ The Notes, Assets and Canvas cards inside a project folder open their correspond
 
 Drag gestures show a preview and commit on release; right-click or **Esc** cancels. **Ctrl+S** saves, **Ctrl+Z** undoes, and save status appears beside the project name. Double-click Tools, Library or Edit at the top of the sidebar to fill the sidebar with that panel; Restore brings back the split layout. **Shift+Enter** on a focused view button performs the same action. Close Settings with its close button, **Esc** or a click outside. Panel sizes, favorites and theme choices are stored on your device. The dark canvas uses clearer grid lines.
 
-Supported imports include TXT, MD, PNG, JPEG, WebP, GIF, BMP, MP3, WAV, M4A, AAC, OGG, FLAC, MP4, MOV, MKV and WebM. Playback depends on the file’s codec; importing a container does not guarantee that every codec inside it can play.
+Supported imports include TXT, MD, PNG, JPEG, WebP, AVIF, GIF, BMP, MP3, WAV, M4A, AAC, OGG, FLAC, MP4, MOV, MKV and WebM. Playback depends on the file’s codec; importing a container does not guarantee that every codec inside it can play.
 
 ## Your project files
 
 ```text
 My project/
 ├── project.json   # Canvas, notes, markers and relationships
-├── assets/        # Copies of source media
+├── assets/        # Compressed images and other project media
 ├── cache/         # Rebuildable waveforms and thumbnails
 └── recovery/      # Recovery snapshots
 ```
 
 New projects default to `Documents/工作台`. To move or back up a project, copy the whole folder and choose **Open project folder** on the home screen. Image cropping and media trimming preserve the source files. If a source goes missing, use **Relink** in the asset library.
+
+Choose **Settings → Image compression**, with **Lossy** selected by default. The preference persists locally and applies to future imports, drops, pastes and relinks. Lossy mode converts suitable PNG, JPEG and lossless WebP files to high-quality AVIF at their original dimensions, using 4:4:4 chroma and 10-bit encoding. Transparent images use the smaller of lossy and lossless WebP, with alpha verified separately. Lossless mode replaces PNGs only when WebP is smaller and decoded RGBA pixels match. Both modes store the chosen file once. Animated, high bit depth, specially profiled and unsuitable inputs retain their format; existing AVIF is copied directly. Changing this setting leaves existing assets as they are.
+
+Canvas previews follow display size, device scale and crop, share decoded images and release them outside the viewport. Library and overview thumbnails use small previews; the stack viewer loads nearby pages and uses the full image for zoomed details. Image exports also load the full image. Rebuildable previews are capped at 128 MiB / 256 files; decoded memory depends on visible content.
+
+To optimize an existing project, close the application and development server, then run `node scripts/maintenance/optimize-project-images.mjs "project-folder"` from the repository root to inspect its image count and size. Add `--apply` to run with progress, using lossy mode by default; add `--mode=lossless` for lossless mode. The script applies the import policy, updates the main document and every recovery snapshot, then removes replaced files. Rerun after an interruption; opening the project also completes any prepared reference update first. Changing modes cannot restore details already removed by lossy compression.
 
 ## Build from source
 

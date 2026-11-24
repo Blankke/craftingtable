@@ -1,4 +1,5 @@
 import { ImageStackGrid } from '../ImageStackGrid'
+import { imageSourceAt } from '../../media/mediaSource'
 // 用法：由 ImageStackViewer 传入真实项目图片；保留原组件的双页折叠、景深与拖动翻页。
 // 来源：用户提供的 21st.dev / @kedhareswer / journal-spread-carousel 组件。
 
@@ -441,10 +442,11 @@ export default function JournalSpreadCarousel({
     const images = imageSources.split('\n').filter(Boolean).map(source => {
       const image = new Image()
       image.onload = () => { if (active && image.naturalHeight) setImageAspects(previous => ({ ...previous, [source]: image.naturalWidth / image.naturalHeight })) }
-      image.src = source
+      // 仅用小图读取比例，数百张叠图不会在打开时解码全部原图。
+      image.src = imageSourceAt(source, 128)
       return image
     })
-    return () => { active = false; images.forEach(image => { image.onload = null }) }
+    return () => { active = false; images.forEach(image => { image.onload = null; image.src = '' }) }
   }, [imageSources])
 
   React.useEffect(() => {
@@ -712,7 +714,8 @@ export default function JournalSpreadCarousel({
                     className="jsc-page"
                     data-side={side}
                   >
-                    <Sheet spread={s} />
+                    {/* 保留折页几何，仅当前页及相邻两页持有图片像素。 */}
+                    {Math.abs(i - index) <= 2 && <Sheet spread={{ ...s, image: s.image ? imageSourceAt(s.image, 2048) : undefined }} />}
                     <div className="jsc-shade" />
                   </div>
                 ))}</div>

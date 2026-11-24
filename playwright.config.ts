@@ -3,6 +3,8 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // 单独清理桌面用例产物，保留同级的视觉基线、复拍和性能采样。
+  outputDir: './test-results/e2e',
   workers: 1,
   timeout: 30_000,
   use: { trace: 'retain-on-failure' }

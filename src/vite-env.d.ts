@@ -1,9 +1,11 @@
 import type { ProjectDocument } from './core/document';
+import type { ImageCompression } from './core/imageCompression';
 
 declare global {
   interface Window {
     workbench?: {
-      getSettings(): Promise<{ projectsRoot: string; documentSchemaVersion: number }>;
+      getSettings(): Promise<{ projectsRoot: string; imageCompression: ImageCompression; documentSchemaVersion: number }>;
+      setImageCompression(mode: ImageCompression): Promise<{ imageCompression: ImageCompression }>;
       clipboardCommand(command: 'copy' | 'cut' | 'paste' | 'pasteAndMatchStyle' | 'selectAll'): Promise<void>;
       readClipboardText(): Promise<string>;
       copyGraphic(input: { png: string; svg?: string }): Promise<void>;
@@ -20,6 +22,7 @@ declare global {
       saveProject(document: ProjectDocument): Promise<{ revision: number }>;
       leaveProject(): Promise<void>;
       importAssets(): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;
+      imageDimensions(assetPath: string): Promise<{ width: number; height: number }>;
       revealAsset(assetPath: string): Promise<void>;
       removeAsset(assetPath: string): Promise<{ removed: boolean }>;
       importDroppedFiles(files: File[]): Promise<{ assets: ProjectDocument['assets']; errors: { name: string; message: string }[] }>;

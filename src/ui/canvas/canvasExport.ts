@@ -5,6 +5,7 @@ import { styleOf } from '../../core/appearance';
 import { shapePath, shapeRadius } from '../../core/shapeGeometry';
 import { escapeTextHtml } from '../../core/canvasText';
 import { canvasTextImageSource, canvasTextLayout, isTextObject } from './canvasTextLayout';
+import { acquireImage } from '../media/imageResources';
 
 export async function copyCanvasGraphic(stage: Konva.Stage, objects: CanvasObject[], format: 'png' | 'svg'): Promise<void> {
   const copies = objects.flatMap(object => {
@@ -21,7 +22,21 @@ export async function copyCanvasGraphic(stage: Konva.Stage, objects: CanvasObjec
   if (width * height > 32_000_000) throw Error('选中区域过大，请分批复制为图像');
   const container = document.createElement('div'), output = new Konva.Stage({ container, width, height });
   const layer = new Konva.Layer({ x: -left, y: -top }); output.add(layer);
+  const releases: (() => void)[] = [];
   try {
+    // 导出使用项目全尺寸图片，避免把低缩放时的预览像素写入 PNG/SVG。
+    // 串行替换避免额外并行展开多张原尺寸图片；引用在最终绘制结束后释放。
+    for (const { node } of copies) for (const item of node.find('Image')) {
+      const image = item as Konva.Image, source = image.getAttr('originalMediaSource') as string | undefined;
+      if (!source) continue;
+      const resource = acquireImage(source); releases.push(resource.release);
+      const bitmap = await resource.promise, previous = image.image();
+      if (previous && 'width' in previous && 'height' in previous && image.cropWidth() && image.cropHeight()) {
+        const ratioX = bitmap.width / Number(previous.width), ratioY = bitmap.height / Number(previous.height);
+        image.crop({ x: image.cropX() * ratioX, y: image.cropY() * ratioY, width: image.cropWidth() * ratioX, height: image.cropHeight() * ratioY });
+      }
+      image.image(bitmap);
+    }
     copies.forEach(({ node }) => layer.add(node)); layer.draw();
     const png = output.toDataURL({ pixelRatio: Math.min(2, Math.sqrt(32_000_000 / (width * height))) });
     let svg: string | undefined;
@@ -45,5 +60,5 @@ export async function copyCanvasGraphic(stage: Konva.Stage, objects: CanvasObjec
       svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${left} ${top} ${width} ${height}">${elements.join('')}</svg>`;
     }
     await window.workbench!.copyGraphic({ png, svg });
-  } finally { output.destroy(); }
+  } finally { output.destroy(); releases.forEach(release => release()); }
 }

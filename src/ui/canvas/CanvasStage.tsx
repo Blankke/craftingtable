@@ -22,6 +22,8 @@ import { noteText, type Note } from '../../core/note';
 import { usePlaybackStore } from '../media/playbackStore';
 import { trackTicks } from '../../core/ticks';
 import { mediaSource } from '../media/mediaSource';
+import { useCanvasImage } from '../media/useCanvasImage';
+import { imagePreviewEdge } from '../../core/imageResolution';
 import { useLanguage } from '../shared/language';
 import { useTheme } from '../theme/themeStore';
 import { colorToHex, colorToRgba } from '../../core/theme';
@@ -47,29 +49,15 @@ type Gesture =
   | { kind: 'crop'; start: Point; object: Extract<CanvasObject, { kind: 'image' }>; crop: { x: number; y: number; width: number; height: number }; corner?: 'nw' | 'ne' | 'sw' | 'se' }
   | { kind: 'arrow'; start: Point; sourceId: string | null; markerId: string | null; pointId?: string; anchor?: Anchor };
 
-function ImageContent({ path, width, height, x = 0, y = 0, host = 'asset', crop, normalizedCrop = false, tint }: { path: string; width: number; height: number; x?: number; y?: number; host?: 'asset' | 'cache'; normalizedCrop?: boolean; tint?: string; crop?: { x: number; y: number; width: number; height: number } }) {
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-  useEffect(() => {
-    const element = new Image(), controller = new AbortController();
-    let objectUrl: string | undefined;
-    // 将受限素材协议响应转换为当前页面的 Blob，画布导出时保持同源、避免被标记为污染。
-    void fetch(mediaSource(path, host), { signal: controller.signal }).then(response => {
-      if (!response.ok) throw Error('素材无法读取');
-      return response.blob();
-    }).then(blob => {
-      if (controller.signal.aborted) return;
-      objectUrl = URL.createObjectURL(blob);
-      element.onload = () => { setImage(element); URL.revokeObjectURL(objectUrl!); objectUrl = undefined; };
-      element.src = objectUrl;
-    }).catch(() => { if (!controller.signal.aborted) setImage(null); });
-    return () => { controller.abort(); element.onload = null; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [path, host]);
+function ImageContent({ path, width, height, scale = 1, x = 0, y = 0, host = 'asset', crop, normalizedCrop = false, tint }: { path: string; width: number; height: number; scale?: number; x?: number; y?: number; host?: 'asset' | 'cache'; normalizedCrop?: boolean; tint?: string; crop?: { x: number; y: number; width: number; height: number } }) {
+  const edge = host === 'asset' ? imagePreviewEdge(width, height, scale, window.devicePixelRatio, normalizedCrop ? crop : undefined) : undefined;
+  const image = useCanvasImage(mediaSource(path, host, edge));
   const rendered = useMemo(() => {
     if (!image || !tint) return image;
     // 源 PNG 只有波形区域有 alpha，source-in 用当前轨道颜色重绘该区域。
     const canvas = document.createElement('canvas');
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
+    canvas.width = image.width;
+    canvas.height = image.height;
     const context = canvas.getContext('2d');
     if (!context) return image;
     context.drawImage(image, 0, 0);
@@ -78,7 +66,7 @@ function ImageContent({ path, width, height, x = 0, y = 0, host = 'asset', crop,
     context.fillRect(0, 0, canvas.width, canvas.height);
     return canvas;
   }, [image, tint]);
-  return rendered ? <KonvaImage image={rendered} x={x} y={y} width={width} height={height} crop={crop && normalizedCrop ? { x: crop.x * image!.naturalWidth, y: crop.y * image!.naturalHeight, width: crop.width * image!.naturalWidth, height: crop.height * image!.naturalHeight } : crop} /> : <Rect x={x} y={y} width={width} height={height} fill="#f1f5f9" />;
+  return rendered ? <KonvaImage image={rendered} originalMediaSource={host === 'asset' ? mediaSource(path) : undefined} x={x} y={y} width={width} height={height} crop={crop && normalizedCrop ? { x: crop.x * image!.width, y: crop.y * image!.height, width: crop.width * image!.width, height: crop.height * image!.height } : crop} /> : <Rect x={x} y={y} width={width} height={height} fill="#f1f5f9" />;
 }
 
 // 峰值文件按路径缓存一次解码结果；裁剪、缩放与改色只在内存重采样，不重复请求或分析音频。
@@ -172,7 +160,7 @@ function ObjectViewContent({ object: sourceObject, hideText = false, scale, asse
         const asset = assets?.find(item => item.id === image.assetId);
         return <Group key={image.id} x={index * 7} y={-index * 7} rotation={index * 2}>
           <Rect width={width} height={object.height} fill={colorToHex(tokens.card)} stroke={borderColor} cornerRadius={5} shadowColor="#0003" shadowBlur={index ? 5 : 9} />
-          {asset && <ImageContent path={asset.path} width={width} height={object.height} crop={image.crop} normalizedCrop />}
+          {asset && <ImageContent path={asset.path} scale={scale} width={width} height={object.height} crop={image.crop} normalizedCrop />}
           <Rect width={width} height={object.height} stroke={styleOf(object).strokeEnabled ? sourceObject.style ? styleOf(object).stroke : borderColor : undefined} strokeWidth={styleOf(object).strokeWidth} cornerRadius={5} />
         </Group>;
       })}
@@ -216,7 +204,7 @@ function ObjectViewContent({ object: sourceObject, hideText = false, scale, asse
       </>)}
       {tool === 'select' && <Rect name="media-drag-handle" x={0} y={0} width={width} height={23} fill="#fff" opacity={0.001} />}
     </> : null}
-    {object.kind === 'image' ? <>{assetPath ? <ImageContent path={assetPath} width={width} height={object.height} crop={object.crop} normalizedCrop /> : <Rect width={width} height={object.height} fill="#f1f5f9" />}<Rect width={width} height={object.height} stroke={styleOf(object).strokeEnabled ? styleOf(object).stroke : undefined} strokeWidth={styleOf(object).strokeWidth} dash={styleOf(object).dash === 'solid' ? [] : [6, 4]}/>{selected && !object.locked && tool === 'select' && object.crop && (() => { const crop = object.crop; const left = crop.x * width, top = crop.y * object.height; return <><Rect name="crop-move-handle" x={left} y={top} width={crop.width * width} height={crop.height * object.height} stroke="#e08a27" dash={[5, 3]} strokeWidth={2} fill="rgba(224,138,39,.08)" /><Text name="editor-decoration" x={4} y={4} text={t('拖动裁剪框或边角调整', 'Drag crop or corners')} fontSize={10} fill="#a65c15" listening={false} /></>; })()}</> : null}
+    {object.kind === 'image' ? <>{assetPath ? <ImageContent path={assetPath} scale={scale} width={width} height={object.height} crop={object.crop} normalizedCrop /> : <Rect width={width} height={object.height} fill="#f1f5f9" />}<Rect width={width} height={object.height} stroke={styleOf(object).strokeEnabled ? styleOf(object).stroke : undefined} strokeWidth={styleOf(object).strokeWidth} dash={styleOf(object).dash === 'solid' ? [] : [6, 4]}/>{selected && !object.locked && tool === 'select' && object.crop && (() => { const crop = object.crop; const left = crop.x * width, top = crop.y * object.height; return <><Rect name="crop-move-handle" x={left} y={top} width={crop.width * width} height={crop.height * object.height} stroke="#e08a27" dash={[5, 3]} strokeWidth={2} fill="rgba(224,138,39,.08)" /><Text name="editor-decoration" x={4} y={4} text={t('拖动裁剪框或边角调整', 'Drag crop or corners')} fontSize={10} fill="#a65c15" listening={false} /></>; })()}</> : null}
     {(selected || tool === 'arrow') && object.connectionPoints?.map(point => <Circle key={point.id} name={`connection-point:${point.id} editor-decoration`} x={point.x * width} y={point.y * object.height} radius={4 / scale} fill={accent} stroke={colorToHex(tokens.card)} strokeWidth={1 / scale} hitStrokeWidth={10 / scale}/>) }
   </Group>;
 }

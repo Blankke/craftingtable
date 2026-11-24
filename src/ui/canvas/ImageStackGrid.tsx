@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { JournalSpread } from './vendor/JournalSpreadCarousel';
 import { useLanguage } from '../shared/language';
+import { imageSourceAt } from '../media/mediaSource';
 
 type Slot = { index: number; edge: 'before' | 'after'; id: string };
 type Gesture = { pointer: number; id: string; slot: Slot | null; button: HTMLButtonElement; x: number; y: number; lastX: number; lastY: number; moved: boolean };
@@ -94,7 +95,7 @@ export function ImageStackGrid({ spreads, activeId, onOpen, onReorder }: {
           event.preventDefault(); event.stopPropagation(); finish();
           reorder(spread.id, index + (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1));
         }}>
-        <img src={spread.image} alt={spread.alt ?? ''} draggable={false}/>
+        <img src={spread.image ? imageSourceAt(spread.image, 256) : undefined} loading="lazy" decoding="async" alt={spread.alt ?? ''} draggable={false}/>
         <span>{index + 1}{index === 0 ? t(' · 封面', ' · Cover') : ''} · {spread.label}</span>
         {spread.caption && <small>{spread.caption}</small>}
       </button>)}

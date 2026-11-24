@@ -259,9 +259,9 @@ export function App() {
     const camera = editor.document.camera;
     const common = { id: crypto.randomUUID(), x: position?.x ?? (100 - camera.x) / camera.scale, y: position?.y ?? (100 - camera.y) / camera.scale, width: 220, height: 90, groupId: null };
     if (kind === 'image' && asset) {
-      const image = new Image(); image.src = mediaSource(asset.path); await image.decode();
-      const width = Math.min(400, image.naturalWidth);
-      return { ...common, kind, assetId: asset.id, width, height: width * image.naturalHeight / image.naturalWidth, aspectLocked: true };
+      const size = await api.imageDimensions(asset.path);
+      const width = Math.min(400, size.width);
+      return { ...common, kind, assetId: asset.id, width, height: width * size.height / size.width, aspectLocked: true };
     }
     if (kind === 'media' && asset) {
       const mediaCount = editor.document.objects.filter(item => item.kind === 'media').length;
@@ -321,7 +321,7 @@ export function App() {
       setPlacementGhost(null);
       const asset = editor.document.assets.find(a => a.id === item.assetId);
       const note = item.kind === 'note' ? editor.document.notes.find(value => value.id === item.assetId) : null;
-      setDropPreview({ x: event.clientX, y: event.clientY, label: note?.name ?? asset?.name ?? (item.kind in shapeLabels ? shapeLabels[item.kind as keyof typeof shapeLabels] : '文字'), image: asset?.kind === 'image' ? mediaSource(asset.path) : undefined, shape: shapeKinds.includes(item.kind as typeof shapeKinds[number]) ? item.kind as typeof shapeKinds[number] : undefined, note: item.kind === 'note' });
+      setDropPreview({ x: event.clientX, y: event.clientY, label: note?.name ?? asset?.name ?? (item.kind in shapeLabels ? shapeLabels[item.kind as keyof typeof shapeLabels] : '文字'), image: asset?.kind === 'image' ? mediaSource(asset.path, 'asset', 256) : undefined, shape: shapeKinds.includes(item.kind as typeof shapeKinds[number]) ? item.kind as typeof shapeKinds[number] : undefined, note: item.kind === 'note' });
     };
     const cancel = () => { if (placement.current) suppressClick.current = true; placement.current = null; cancelledDrop.current = true; setDropPreview(null); setPlacementGhost(null); };
     const down = (event: MouseEvent) => { if (event.button === 2) cancel(); };

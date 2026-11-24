@@ -74,7 +74,19 @@ test('阅读批注、Markdown 导出与无路径剪贴板图片', async () => {
     await expect(body.locator('.note-project-image')).toBeVisible();
     await expect.poll(() => body.locator('.note-project-image').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(160);
     await expect.poll(async () => (await saved()).assets.length).toBe(1);
-    expect(await readFile(path.join(folder, (await saved()).assets[0].path))).toEqual(png);
+    // 项目允许无损换格式，验收应比较解码像素，不依赖 PNG 文件字节保持原样。
+    const samePixels = await body.locator('.note-project-image').evaluate(async (element, bytes) => {
+      const original = new Image(); original.src = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+      try {
+        await original.decode();
+        const pixels = (image: HTMLImageElement) => { const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight; const ctx = canvas.getContext('2d')!; ctx.drawImage(image, 0, 0); return ctx.getImageData(0, 0, canvas.width, canvas.height).data; };
+        // 项目协议图片经 Blob 转为同源，避免跨协议污染画布。
+        const actual = new Image(); actual.src = URL.createObjectURL(await (await fetch((element as HTMLImageElement).src)).blob());
+        try { await actual.decode(); const a = pixels(original), b = pixels(actual); return a.length === b.length && a.every((value, index) => value === b[index]); }
+        finally { URL.revokeObjectURL(actual.src); }
+      } finally { URL.revokeObjectURL(original.src); }
+    }, [...png]);
+    expect(samePixels).toBe(true);
     await page.getByLabel('分屏预览', { exact: true }).click();
     await expect(page.locator('.note-assist')).toBeVisible();
     const resizer = page.getByRole('separator', { name: '调整预览宽度' });

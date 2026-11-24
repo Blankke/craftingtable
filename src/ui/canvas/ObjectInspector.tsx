@@ -10,7 +10,6 @@ import { TextToolbar } from './TextToolbar';
 import { CanvasRichTextInput } from './CanvasTextEditor';
 import { emptyCanvasText } from '../../core/canvasText';
 import { ColorTrigger } from '../theme/ColorEditor';
-import { mediaSource } from '../media/mediaSource';
 import { useLanguage } from '../shared/language';
 import { NumberField } from '../shared/NumberField';
 import { MousePointer2 } from 'lucide-react';
@@ -71,9 +70,9 @@ export function ObjectInspector({ editor, objects, assets, requestedTab = '样�
     const asset = assets.find(item => item.id === object.assetId);
     if (!asset) return;
     try {
-      const image = new Image(); image.src = mediaSource(asset.path); await image.decode();
+      const size = await window.workbench!.imageDimensions(asset.path);
       const cropRegion = object.kind === 'image' ? object.crop : undefined;
-      const ratio = restoredImageRatio(cropRegion, image.naturalWidth, image.naturalHeight);
+      const ratio = restoredImageRatio(cropRegion, size.width, size.height);
       update(target => { if (target.kind === 'image') { target.width = target.height * ratio; target.aspectLocked = true; } });
     } catch (error) {
       alert(`${t('素材无法解码，已保留当前尺寸', 'Could not decode the asset; kept current size')}：${String(error)}`);

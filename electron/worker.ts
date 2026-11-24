@@ -1,5 +1,5 @@
-import { createNumberedImage } from './assetFiles';
-import { constants as fsConstants } from 'node:fs';
+import { finishImageOptimization, imageDimensions, imagePreview, storeImage } from './imageStorage';
+import { imageCompressionSchema, DEFAULT_IMAGE_COMPRESSION } from '../src/core/imageCompression';
 // 后台只处理项目文件和素材；编辑器事实仍由渲染进程持有。
 import { mkdir, readFile, readdir, rename, copyFile, stat, open, rm, realpath, writeFile } from 'node:fs/promises';
 import { mediaToolPath } from './mediaTools';
@@ -19,12 +19,14 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('list'), root: z.string() }),
   z.object({ method: z.literal('create'), root: z.string(), name: z.string().min(1) }),
   z.object({ method: z.literal('open'), folder: z.string() }),
+  z.object({ method: z.literal('imagePreview'), folder: z.string(), source: z.string(), edge: z.number().int() }),
+  z.object({ method: z.literal('imageDimensions'), folder: z.string(), source: z.string() }),
   z.object({ method: z.literal('rename'), folder: z.string(), name: z.string().trim().min(1).max(100) }),
   z.object({ method: z.literal('save'), folder: z.string(), document: documentSchema }),
-  z.object({ method: z.literal('import'), folder: z.string(), source: z.string() }),
-  z.object({ method: z.literal('importImage'), folder: z.string(), name: z.string().max(255), bytes: z.instanceof(Uint8Array).refine(bytes => bytes.length > 0 && bytes.length <= 50 * 1024 * 1024) }),
+  z.object({ method: z.literal('import'), folder: z.string(), source: z.string(), imageCompression: imageCompressionSchema.default(DEFAULT_IMAGE_COMPRESSION) }),
+  z.object({ method: z.literal('importImage'), folder: z.string(), name: z.string().max(255), bytes: z.instanceof(Uint8Array).refine(bytes => bytes.length > 0 && bytes.length <= 50 * 1024 * 1024), imageCompression: imageCompressionSchema.default(DEFAULT_IMAGE_COMPRESSION) }),
   z.object({ method: z.literal('removeAsset'), folder: z.string(), assetPath: z.string().min(1) }),
-  z.object({ method: z.literal('relink'), folder: z.string(), source: z.string(), expectedKind: z.enum(['video', 'audio', 'image', 'text']) }),
+  z.object({ method: z.literal('relink'), folder: z.string(), source: z.string(), expectedKind: z.enum(['video', 'audio', 'image', 'text']), imageCompression: imageCompressionSchema.default(DEFAULT_IMAGE_COMPRESSION) }),
   z.object({ method: z.literal('createText'), folder: z.string(), name: z.string().trim().min(1).max(100), content: z.string().max(2_000_000) }),
   z.object({ method: z.literal('analyze'), folder: z.string(), assetId: z.string().uuid(), assetPath: z.string(), kind: z.enum(['audio', 'video']), inUs: z.number().int().nonnegative(), outUs: z.number().int().positive(), pixelsPerSecond: z.number().positive(), taskId: z.string().uuid().optional() }),
   z.object({ method: z.literal('cancel'), taskId: z.string().uuid() })
@@ -36,6 +38,7 @@ const taskControllers = new Map<string, AbortController>();
 let activeAnalyses = 0;
 const analysisQueue: (() => void)[] = [];
 const cacheWrites = new Map<string, Promise<void>>();
+let imageMetadata = Promise.resolve();
 
 function insideDirectory(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
@@ -234,6 +237,17 @@ async function homePreview(folder: string, document: z.infer<typeof documentSche
 
 async function handle(raw: unknown): Promise<unknown> {
   const request = requestSchema.parse(raw);
+  if (request.method === 'imagePreview' || request.method === 'imageDimensions') {
+    const project = await realpath(request.folder), assets = await realpath(path.join(project, 'assets')), source = await realpath(path.resolve(project, request.source));
+    if (!insideDirectory(project, assets) || !insideDirectory(assets, source) || !['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'].includes(path.extname(source).toLowerCase())) throw Error('图片预览路径无效');
+    if (request.method === 'imageDimensions') {
+      // 元数据独立串行，避免被长时媒体分析或数百个预览编码阻塞，也不同时启动大量探测进程。
+      const result = imageMetadata.then(() => imageDimensions(source, true));
+      imageMetadata = result.then(() => undefined, () => undefined);
+      return result;
+    }
+    return imagePreview(project, source, request.edge);
+  }
   if (request.method === 'list') {
     await mkdir(request.root, { recursive: true });
     const entries = await readdir(request.root, { withFileTypes: true });
@@ -255,6 +269,8 @@ async function handle(raw: unknown): Promise<unknown> {
     return folder;
   }
   if (request.method === 'open') {
+    // 整理意外中断时先完成引用切换，再允许编辑器载入和自动保存。
+    await finishImageOptimization(request.folder);
     let document: z.infer<typeof documentSchema>;
     let recovered = false;
     let migrated = false;
@@ -353,21 +369,26 @@ async function handle(raw: unknown): Promise<unknown> {
     const extension = signature.startsWith('89504e470d0a1a0a') ? '.png'
       : signature.startsWith('ffd8ff') ? '.jpg'
       : signature.startsWith('474946383761') || signature.startsWith('474946383961') ? '.gif'
-      : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' ? '.webp' : null;
+      : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' ? '.webp'
+      : bytes.toString('ascii', 4, 8) === 'ftyp' && ['avif', 'avis'].includes(bytes.toString('ascii', 8, 12)) ? '.avif' : null;
     if (!extension) throw Error('不支持的剪贴板图片格式');
-    const id = crypto.randomUUID();
-    const name = await createNumberedImage(path.join(request.folder, 'assets'), request.name, extension, destination => writeFile(destination, bytes, { flag: 'wx' }));
-    return { id, name, path: `assets/${name}`, kind: 'image', status: 'ready' };
+    const directory = path.join(request.folder, 'assets'), temporary = path.join(directory, `.paste-${crypto.randomUUID()}${extension}`);
+    await mkdir(directory, { recursive: true });
+    try {
+      await writeFile(temporary, bytes, { flag: 'wx' });
+      const name = await storeImage(temporary, directory, request.name, request.imageCompression);
+      return { id: crypto.randomUUID(), name, path: `assets/${name}`, kind: 'image', status: 'ready' };
+    } finally { await rm(temporary, { force: true }); }
   }
   const source = request.source;
   const originalName = path.basename(source);
   const extension = path.extname(originalName).toLowerCase();
-  const kind = ['.mp4', '.mov', '.mkv', '.webm'].includes(extension) ? 'video' : ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'].includes(extension) ? 'audio' : ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'].includes(extension) ? 'image' : ['.txt', '.md'].includes(extension) ? 'text' : null;
+  const kind = ['.mp4', '.mov', '.mkv', '.webm'].includes(extension) ? 'video' : ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'].includes(extension) ? 'audio' : ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'].includes(extension) ? 'image' : ['.txt', '.md'].includes(extension) ? 'text' : null;
   if (!kind) throw Error('不支持的素材类型');
   if (request.method === 'relink' && kind !== request.expectedKind) throw Error('重新关联文件的类型不匹配');
   if (!(await stat(source)).isFile()) throw Error('请拖入文件，不支持文件夹');
   if (kind === 'image') {
-    const name = await createNumberedImage(path.join(request.folder, 'assets'), originalName, extension, destination => copyFile(source, destination, fsConstants.COPYFILE_EXCL));
+    const name = await storeImage(source, path.join(request.folder, 'assets'), originalName, request.imageCompression);
     return { id: crypto.randomUUID(), name, path: `assets/${name}`, kind, status: 'ready' };
   }
   const fileName = `${crypto.randomUUID()}${extension}`;
